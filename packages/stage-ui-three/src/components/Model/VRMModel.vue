@@ -212,7 +212,10 @@ function clearGestureFallback() {
 
 // The cache can hand the same mixer to a remounted component, so keep the idle
 // action on the mixer itself instead of in component-scoped state.
-type MixerWithIdleAction = AnimationMixer & { __airiIdleAction?: AnimationAction }
+type MixerWithIdleAction = AnimationMixer & {
+  __airiIdleAction?: AnimationAction
+  __airiIdleUrl?: string
+}
 
 function getIdleAction(mixer?: AnimationMixer) {
   return (mixer as MixerWithIdleAction | undefined)?.__airiIdleAction
@@ -220,6 +223,14 @@ function getIdleAction(mixer?: AnimationMixer) {
 
 function setIdleAction(mixer: AnimationMixer, action: AnimationAction) {
   (mixer as MixerWithIdleAction).__airiIdleAction = action
+}
+
+function getIdleAnimationUrl(mixer?: AnimationMixer) {
+  return (mixer as MixerWithIdleAction | undefined)?.__airiIdleUrl
+}
+
+function setIdleAnimationUrl(mixer: AnimationMixer, url: string) {
+  (mixer as MixerWithIdleAction).__airiIdleUrl = url
 }
 
 /** Recover a cached/restored mixer whose idle action was stopped or faded out. */
@@ -231,6 +242,73 @@ function ensureIdlePlaying(mixer?: AnimationMixer) {
     idle.reset().play()
   idle.setEffectiveWeight(1)
 }
+
+let idleReplaceRequest = 0
+
+/**
+ * Replaces the looping idle action without reloading the model.
+ *
+ * The bundled idle stays loaded until the replacement clip is ready. A failed
+ * or stale load leaves the previous idle running.
+ */
+async function replaceIdleAnimation(url: string) {
+  const vrmAtStart = vrm.value
+  const mixer = vrmAnimationMixer.value
+  if (!vrmAtStart || !mixer || !url)
+    return false
+  if (getIdleAnimationUrl(mixer) === url)
+    return true
+
+  const request = ++idleReplaceRequest
+  let animation: VRMAnimation | undefined
+  try {
+    animation = await loadVRMAnimation(url)
+  }
+  catch {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+  if (!animation) {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+
+  let clip: AnimationClip | undefined
+  try {
+    clip = await clipFromVRMAnimation(vrmAtStart, animation)
+  }
+  catch {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+  if (!clip || !(clip.duration > 0) || !Number.isFinite(clip.duration)) {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+  if (vrm.value !== vrmAtStart || vrmAnimationMixer.value !== mixer || request !== idleReplaceRequest)
+    return false
+
+  reAnchorRootPositionTrack(clip, vrmAtStart)
+  const previous = getIdleAction(mixer)
+  const action = mixer.clipAction(clip)
+  action.reset().setEffectiveWeight(1).play()
+
+  const fadeSeconds = 0.35
+  const current = currentGestureAction.value?.isRunning() ? currentGestureAction.value : previous
+  if (current && current !== action)
+    action.crossFadeFrom(current, fadeSeconds, false)
+  else
+    action.fadeIn(fadeSeconds)
+
+  setIdleAction(mixer, action)
+  setIdleAnimationUrl(mixer, url)
+  return true
+}
+
+watch(idleAnimation, (url) => {
+  if (url)
+    void replaceIdleAnimation(url)
+}, { flush: 'post' })
 
 const vrmHooks: readonly VrmHook[] = resolveInternalVrmHooks()
 type VrmFrameRuntimeHook = (vrm: VRM, delta: number) => void
@@ -809,6 +887,8 @@ async function loadModel() {
         emit('sceneBootstrap', buildSceneBootstrap(reusableInstance.vrm, true))
         commitManagedVrmInstance(reusableInstance, currentLoadReason)
         didCommitLoad = true
+        if (idleAnimation.value && getIdleAnimationUrl(reusableInstance.mixer) !== idleAnimation.value)
+          void replaceIdleAnimation(idleAnimation.value)
 
         if (isStageThreeRuntimeTraceEnabled()) {
           stageThreeRuntimeTraceContext.emit(stageThreeTraceVrmLoadEndEvent, {
@@ -884,6 +964,7 @@ async function loadModel() {
     const idleAction = nextVrmAnimationMixer.clipAction(clip)
     idleAction.play()
     setIdleAction(nextVrmAnimationMixer, idleAction)
+    setIdleAnimationUrl(nextVrmAnimationMixer, idleAnimation.value)
 
     nextVrmEmote = useVRMEmote(_vrm)
 
@@ -961,6 +1042,8 @@ async function loadModel() {
       vrm: _vrm,
     }), currentLoadReason)
     didCommitLoad = true
+    if (idleAnimation.value && getIdleAnimationUrl(nextVrmAnimationMixer) !== idleAnimation.value)
+      void replaceIdleAnimation(idleAnimation.value)
 
     if (isStageThreeRuntimeTraceEnabled()) {
       stageThreeRuntimeTraceContext.emit(stageThreeTraceVrmLoadEndEvent, {

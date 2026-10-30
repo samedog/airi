@@ -67,7 +67,8 @@ const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   return avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
 })
 
-const vrmAnimationSlots = computed<{ slot: Exclude<VrmAnimationSlot, 'idle'>, label: string }[]>(() => [
+const vrmAnimationSlots = computed<{ slot: VrmAnimationSlot, label: string }[]>(() => [
+  { slot: 'idle', label: t('settings.vrm.animation.slots.idle') },
   { slot: 'happy', label: t('settings.vrm.animation.slots.happy') },
   { slot: 'sad', label: t('settings.vrm.animation.slots.sad') },
   { slot: 'angry', label: t('settings.vrm.animation.slots.angry') },
@@ -97,6 +98,11 @@ const vrmAnimationOptions = computed(() => {
   ]
 })
 
+const vrmIdleAnimationOptions = computed(() => [
+  { label: t('settings.vrm.animation.default-idle'), value: '', description: '' },
+  ...vrmAnimationOptions.value.slice(1),
+])
+
 const vrmAnimationDialog = useFileDialog({ accept: '.vrma', multiple: true, reset: true })
 vrmAnimationDialog.onChange(async (files) => {
   if (!files)
@@ -113,7 +119,7 @@ vrmAnimationDialog.onChange(async (files) => {
   }
 })
 
-async function setVrmAnimationBinding(slot: Exclude<VrmAnimationSlot, 'idle'>, value: string | number | undefined) {
+async function setVrmAnimationBinding(slot: VrmAnimationSlot, value: string | number | undefined) {
   if (typeof value !== 'string')
     return
   const avatarModel = selectedAvatarModel.value
@@ -234,7 +240,7 @@ const envOptions = computed(() => [
           <FieldCombobox
             :label="slot.label"
             :model-value="vrmAnimationBindings[slot.slot] ?? ''"
-            :options="vrmAnimationOptions"
+            :options="slot.slot === 'idle' ? vrmIdleAnimationOptions : vrmAnimationOptions"
             layout="vertical"
             @update:model-value="value => setVrmAnimationBinding(slot.slot, value)"
           />

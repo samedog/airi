@@ -53,7 +53,7 @@ react to the game.
 - Removed the Mixamo-derived `.vrma` assets from the source tree. They are user-local assets and
   must not be redistributed with the fork or its release artifacts.
 - Added a Models > VRM Animations section for importing `.vrma` files, opening the local animation
-  folder, and binding an animation to each supported emotion.
+  folder, and binding an animation to each supported emotion or to the looping idle.
 - User animations live under `app.getPath('userData')/vrm-animations` and never enter the source
   tree or release artifacts.
 - Updated the VRM animation index to expose only the upstream idle animation.

@@ -305,6 +305,33 @@ const storedVrmAnimationBindings = computed<VrmAnimationBindings>(() => {
 const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   return vrmAnimationsStore.resolveBindings(selectedAvatarModel.value?.id, storedVrmAnimationBindings.value)
 })
+const vrmIdleAnimation = ref(animations.idleLoop.toString())
+let vrmIdleAnimationRequest = 0
+
+async function refreshVrmIdleAnimation() {
+  const request = ++vrmIdleAnimationRequest
+  const id = vrmAnimationBindings.value.idle
+  if (!id) {
+    vrmIdleAnimation.value = animations.idleLoop.toString()
+    return
+  }
+
+  const url = await vrmAnimationsStore.getAnimationUrl(id)
+  if (request !== vrmIdleAnimationRequest)
+    return
+  if (!url) {
+    console.warn('[VRM] animation for "idle" not found')
+    vrmIdleAnimation.value = animations.idleLoop.toString()
+    return
+  }
+  vrmIdleAnimation.value = url
+}
+
+watch(
+  [() => selectedAvatarModel.value?.id, () => vrmAnimationBindings.value.idle],
+  refreshVrmIdleAnimation,
+  { immediate: true },
+)
 
 function vrmAnimationSlotForEmotion(name: Emotion): VrmAnimationSlot | undefined {
   if (name === Emotion.Neutral)
@@ -953,7 +980,7 @@ defineExpose({
         :model-id="stageModelSelected"
         :model-src="stageModelSelectedUrl"
         :cursor-position="cursorPosition"
-        :idle-animation="animations.idleLoop.toString()"
+        :idle-animation="vrmIdleAnimation"
         :paused="paused"
         :show-axes="stageViewControlsEnabled"
         :enable-orbit-controls="props.enableOrbitControls"
