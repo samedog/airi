@@ -1,12 +1,18 @@
 <script setup lang="ts">
+import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
+
 import type { ModelSettingsRuntimeSnapshot } from './runtime'
 
+import { errorMessageFrom } from '@moeru/std'
 import { useModelStore } from '@proj-airi/stage-ui-three'
-import { Button, Callout, GhostButton, SelectTab } from '@proj-airi/ui'
+import { Button, Callout, FieldCombobox, GhostButton, SelectTab } from '@proj-airi/ui'
+import { useFileDialog } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useAiriCardStore } from '../../../../stores/modules/airi-card'
+import { useVrmAnimationsStore } from '../../../../stores/vrm-animations'
 import { Container, PropertyColor, PropertyNumber, PropertyPoint } from '../../../data-pane'
 import { ColorPalette } from '../../../widgets'
 
@@ -49,6 +55,94 @@ const {
   skyBoxIntensity,
 } = storeToRefs(modelStore)
 const controlsLocked = computed(() => props.runtimeSnapshot.controlsLocked)
+
+const airiCardStore = useAiriCardStore()
+const vrmAnimationsStore = useVrmAnimationsStore()
+const { activeCardId, selectedAvatarModel } = storeToRefs(airiCardStore)
+const { assets: vrmAnimationAssets, error: vrmAnimationError, loading: vrmAnimationLoading, supported: vrmAnimationsSupported } = storeToRefs(vrmAnimationsStore)
+const vrmAnimationImportError = ref<string>()
+
+const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
+  const avatarModel = selectedAvatarModel.value
+  return avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
+})
+
+const vrmAnimationSlots = computed<{ slot: Exclude<VrmAnimationSlot, 'idle'>, label: string }[]>(() => [
+  { slot: 'happy', label: t('settings.vrm.animation.slots.happy') },
+  { slot: 'sad', label: t('settings.vrm.animation.slots.sad') },
+  { slot: 'angry', label: t('settings.vrm.animation.slots.angry') },
+  { slot: 'think', label: t('settings.vrm.animation.slots.think') },
+  { slot: 'surprised', label: t('settings.vrm.animation.slots.surprised') },
+  { slot: 'awkward', label: t('settings.vrm.animation.slots.awkward') },
+  { slot: 'question', label: t('settings.vrm.animation.slots.question') },
+  { slot: 'curious', label: t('settings.vrm.animation.slots.curious') },
+])
+
+const vrmAnimationOptions = computed(() => {
+  const knownIds = new Set(vrmAnimationAssets.value.map(asset => asset.id))
+  const missingIds = [...new Set(Object.values(vrmAnimationBindings.value))]
+    .filter((id): id is string => !!id && !knownIds.has(id))
+  return [
+    { label: t('settings.vrm.animation.none'), value: '', description: '' },
+    ...vrmAnimationAssets.value.map(asset => ({
+      label: asset.name,
+      value: asset.id,
+      description: `${(asset.size / 1024).toFixed(0)} KB`,
+    })),
+    ...missingIds.map(id => ({
+      label: t('settings.vrm.animation.missing', { id }),
+      value: id,
+      description: '',
+    })),
+  ]
+})
+
+const vrmAnimationDialog = useFileDialog({ accept: '.vrma', multiple: true, reset: true })
+vrmAnimationDialog.onChange(async (files) => {
+  if (!files)
+    return
+
+  vrmAnimationImportError.value = undefined
+  for (const file of Array.from(files)) {
+    try {
+      await vrmAnimationsStore.importAnimation(file)
+    }
+    catch (error) {
+      vrmAnimationImportError.value = errorMessageFrom(error)
+    }
+  }
+})
+
+async function setVrmAnimationBinding(slot: Exclude<VrmAnimationSlot, 'idle'>, value: string | number | undefined) {
+  if (typeof value !== 'string')
+    return
+  const avatarModel = selectedAvatarModel.value
+  if (!avatarModel || avatarModel.type !== 'vrm')
+    return
+
+  const animations = { ...vrmAnimationBindings.value }
+  if (value)
+    animations[slot] = value
+  else
+    delete animations[slot]
+
+  const updated = await airiCardStore.updateVrmAnimationBindings(activeCardId.value, avatarModel.id, animations)
+  if (updated)
+    vrmAnimationsStore.publishBindings(avatarModel.id, animations)
+}
+
+async function openVrmAnimationFolder() {
+  try {
+    await vrmAnimationsStore.reveal()
+  }
+  catch (error) {
+    vrmAnimationImportError.value = errorMessageFrom(error)
+  }
+}
+
+onMounted(() => {
+  void vrmAnimationsStore.refresh()
+})
 // Bare numbers and an i18n'd unlimited label, matching the Live2D and Spine frame-rate controls.
 const fpsOptions = computed(() => [
   { value: 0, label: t('settings.vrm.fps.options.unlimited') },
@@ -95,6 +189,58 @@ const envOptions = computed(() => [
       {{ t('settings.vrm.fps.description') }}
     </p>
     <SelectTab v-model="maxFps" :options="fpsOptions" size="sm" :class="['shrink-0']" />
+  </Container>
+  <Container
+    :title="t('settings.vrm.animation.title')"
+    icon="i-solar:play-bold-duotone"
+    :class="[
+      'rounded-xl',
+      'bg-white/80  dark:bg-black/75',
+      'backdrop-blur-lg',
+    ]"
+  >
+    <p :class="['text-xs', 'text-neutral-500 dark:text-neutral-400']">
+      {{ t('settings.vrm.animation.description') }}
+    </p>
+    <Callout v-if="!vrmAnimationsSupported" :label="t('settings.vrm.animation.title')">
+      <div :class="['text-sm', 'text-neutral-600 dark:text-neutral-400']">
+        {{ t('settings.vrm.animation.desktop-only') }}
+      </div>
+    </Callout>
+    <template v-else>
+      <div :class="['mt-2', 'flex', 'flex-wrap', 'items-center', 'gap-2']">
+        <Button @click="vrmAnimationDialog.open()">
+          {{ t('settings.vrm.animation.import') }}
+        </Button>
+        <GhostButton size="sm" @click="openVrmAnimationFolder()">
+          {{ t('settings.vrm.animation.open-folder') }}
+        </GhostButton>
+        <GhostButton size="sm" :disabled="vrmAnimationLoading" @click="vrmAnimationsStore.refresh()">
+          {{ t('settings.vrm.animation.refresh') }}
+        </GhostButton>
+      </div>
+      <p v-if="vrmAnimationImportError || vrmAnimationError" :class="['mt-2', 'text-xs', 'text-red-500']">
+        {{ vrmAnimationImportError || vrmAnimationError }}
+      </p>
+      <p v-if="vrmAnimationAssets.length === 0" :class="['mt-2', 'text-xs', 'text-neutral-500 dark:text-neutral-400']">
+        {{ t('settings.vrm.animation.empty') }}
+      </p>
+      <div v-else :class="['mt-3', 'flex', 'flex-col', 'gap-2']">
+        <div
+          v-for="slot in vrmAnimationSlots"
+          :key="slot.slot"
+          :class="['flex', 'flex-col', 'gap-1']"
+        >
+          <FieldCombobox
+            :label="slot.label"
+            :model-value="vrmAnimationBindings[slot.slot] ?? ''"
+            :options="vrmAnimationOptions"
+            layout="vertical"
+            @update:model-value="value => setVrmAnimationBinding(slot.slot, value)"
+          />
+        </div>
+      </div>
+    </template>
   </Container>
   <Container
     :title="t('settings.pages.models.sections.section.scene')"

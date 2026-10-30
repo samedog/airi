@@ -54,6 +54,7 @@ import { setupSherpawModelAssetsProtocol } from './services/electron/bundled-she
 import { setupGlobalShortcutService } from './services/electron/global-shortcut'
 import { setupPermissionHandlers } from './services/electron/media-permissions'
 import { setupSherpawModelAssets } from './services/electron/sherpaw-model-assets'
+import { setupVrmAnimations } from './services/electron/vrm-animations'
 import { setupTray } from './tray'
 import { setupAboutWindowReusable } from './windows/about'
 import { setupBeatSync } from './windows/beat-sync'
@@ -249,6 +250,7 @@ app.whenReady().then(async () => {
 
   setupSherpawModelAssetsProtocol(getRendererRoot)
   setupSherpawModelAssets(createContext(ipcMain).context)
+  setupVrmAnimations(createContext(ipcMain).context)
   setupPermissionHandlers(session.defaultSession, hasSelectedScreenCaptureSource)
 
   // Initialize file logger and register the hook

@@ -1,4 +1,5 @@
 import type { Card, ccv3 } from '@proj-airi/ccc'
+import type { VrmAnimationBindings } from '@proj-airi/stage-shared/vrm-animations'
 import type {
   Live2DExpressionControl,
   Live2DModelControls,
@@ -481,6 +482,38 @@ export const useAiriCardStore = defineStore('airi-card', () => {
         airi: {
           ...card.extensions.airi,
           defaultAvatarModelId: avatarModelId,
+        },
+      },
+    })
+
+    return true
+  }
+
+  async function updateVrmAnimationBindings(characterId: string, avatarModelId: string, animations: VrmAnimationBindings) {
+    const card = toRaw(cards.value.get(characterId))
+    if (!card)
+      return false
+
+    const avatarModelIndex = card.extensions.airi.avatarModels.findIndex(model => model.id === avatarModelId)
+    const avatarModel = card.extensions.airi.avatarModels[avatarModelIndex]
+    if (!avatarModel || avatarModel.type !== 'vrm')
+      return false
+
+    const avatarModels = [...card.extensions.airi.avatarModels]
+    avatarModels[avatarModelIndex] = {
+      ...avatarModel,
+      config: {
+        ...avatarModel.config,
+        animations: { ...animations },
+      },
+    }
+    cards.value.set(characterId, {
+      ...card,
+      extensions: {
+        ...card.extensions,
+        airi: {
+          ...card.extensions.airi,
+          avatarModels,
         },
       },
     })
@@ -1508,6 +1541,7 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     resetState,
     selectAvatarModel,
     updateLive2DControlPolicy,
+    updateVrmAnimationBindings,
     initialize,
     activateCard,
     configureForAuthentication,

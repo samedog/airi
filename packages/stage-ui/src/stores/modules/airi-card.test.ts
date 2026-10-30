@@ -730,6 +730,53 @@ describe('airi-card store', () => {
     expect(useSettingsStageModel().stageModelSelected).toBe('')
   })
 
+  it('stores VRM animation bindings on the selected VRM Avatar Model', async () => {
+    const cardStore = useAiriCardStore()
+    const cardId = await cardStore.addCard({
+      name: 'VRM animation bindings',
+      version: '1.0.0',
+      description: 'Stores per-emotion VRM animation IDs.',
+      extensions: {
+        airi: {
+          avatarModels: [{
+            id: 'vrm-avatar-model',
+            displayModelId: 'preset-vrm-1',
+            type: 'vrm',
+            config: {},
+          }],
+          defaultAvatarModelId: 'vrm-avatar-model',
+          modules: {
+            consciousness: { provider: '', model: '' },
+            vision: { provider: '', model: '' },
+            speech: { provider: '', model: '', voice_id: '' },
+          },
+          agents: {},
+        },
+      },
+    }, 'scratch')
+    cardStore.activeCardId = cardId
+
+    await cardStore.initialize()
+
+    await expect(cardStore.updateVrmAnimationBindings(cardId, 'vrm-avatar-model', {
+      happy: 'animation-happy',
+      angry: 'animation-angry',
+    })).resolves.toBe(true)
+
+    expect(cardStore.selectedAvatarModel).toMatchObject({
+      type: 'vrm',
+      config: {
+        animations: {
+          happy: 'animation-happy',
+          angry: 'animation-angry',
+        },
+      },
+    })
+    await expect(cardStore.updateVrmAnimationBindings(cardId, 'missing-avatar-model', {
+      happy: 'animation-happy',
+    })).resolves.toBe(false)
+  })
+
   it('stores Live2D control policy on the selected Avatar Model', async () => {
     const stageModelStore = useSettingsStageModel()
     const cardStore = useAiriCardStore()

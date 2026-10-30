@@ -32,6 +32,7 @@
     "./stores/screen-ambient-light": "./src/stores/screen-ambient-light.ts",
     "./types/io-trace": "./src/types/io-trace.ts",
     "./types/pinia-action-event": "./src/types/pinia-action-event.ts",
+    "./vrm-animations": "./src/vrm-animations.ts",
     "./electron-renderer": "./src/electron-renderer.d.ts",
     "./composables": "./src/composables/index.ts",
     "./webgpu": "./src/webgpu/index.ts"

@@ -3,6 +3,7 @@ import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-drive
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
+import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
 import type { VrmInteractionTarget } from '@proj-airi/stage-ui-three'
 
 import type { EmotionPayload } from '../../constants/emotions'
@@ -50,6 +51,7 @@ import { useSettings } from '../../stores/settings'
 import { useSettingsStageModel } from '../../stores/settings/stage-model'
 import { useSpeechOutputControlStore } from '../../stores/speech-output-control'
 import { useVoiceStore } from '../../stores/voice'
+import { useVrmAnimationsStore } from '../../stores/vrm-animations'
 
 const props = withDefaults(defineProps<{
   cursorPosition?: { x: number, y: number }
@@ -295,6 +297,42 @@ function resetAssistantSpeechSurface(source: string) {
 }
 
 const { activeCardId: selectedCharacterId, activeCard, selectedAvatarModel, ready: cardsReady } = storeToRefs(useAiriCardStore())
+const vrmAnimationsStore = useVrmAnimationsStore()
+const storedVrmAnimationBindings = computed<VrmAnimationBindings>(() => {
+  const avatarModel = selectedAvatarModel.value
+  return avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
+})
+const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
+  return vrmAnimationsStore.resolveBindings(selectedAvatarModel.value?.id, storedVrmAnimationBindings.value)
+})
+
+function vrmAnimationSlotForEmotion(name: Emotion): VrmAnimationSlot | undefined {
+  if (name === Emotion.Neutral)
+    return undefined
+  return name
+}
+
+async function playVrmEmotionAnimation(name: Emotion) {
+  const slot = vrmAnimationSlotForEmotion(name)
+  if (!slot)
+    return
+
+  const assetId = vrmAnimationBindings.value[slot]
+  if (!assetId)
+    return
+
+  const url = await vrmAnimationsStore.getAnimationUrl(assetId)
+  if (!url) {
+    console.warn(`[VRM] animation for "${name}" not found`)
+    return
+  }
+
+  if (activeSpeechMotion.value) {
+    clearSpeechMotionWatchdog()
+    activeSpeechMotion.value = undefined
+  }
+  await vrmViewerRef.value?.playGesture(url, { fadeMs: 450 })
+}
 const { stageModelUnavailable } = storeToRefs(useSettingsStageModel())
 // Before the card store is ready, no card owns the Stage yet, so an empty Stage is not a missing model.
 // `missing`: the card has no model. `unavailable`: this device cannot load the model of the card.
@@ -339,6 +377,7 @@ const emotionsQueue = createQueue<EmotionPayload>({
 
         // Hold through the whole response; reset when speechVoicing drops.
         await vrmViewerRef.value!.setExpression(value, ctx.data.intensity, speechVoicing.value ? 0 : 3000)
+        await playVrmEmotionAnimation(ctx.data.name)
       }
       else if (stageModelRenderer.value === 'live2d') {
         currentMotion.value = { group: EMOTION_EmotionMotionName_value[ctx.data.name] }

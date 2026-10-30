@@ -52,6 +52,10 @@ react to the game.
 - Kept the upstream `idle_loop.vrma` as the only bundled VRM animation.
 - Removed the Mixamo-derived `.vrma` assets from the source tree. They are user-local assets and
   must not be redistributed with the fork or its release artifacts.
+- Added a Models > VRM Animations section for importing `.vrma` files, opening the local animation
+  folder, and binding an animation to each supported emotion.
+- User animations live under `app.getPath('userData')/vrm-animations` and never enter the source
+  tree or release artifacts.
 - Updated the VRM animation index to expose only the upstream idle animation.
 - Updated `VRMModel.vue` so a missing requested animation logs
   `animation for "<name>" not found` and returns without throwing.

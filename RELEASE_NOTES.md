@@ -10,8 +10,9 @@ Linux/Wayland-focused fork of Project AIRI, based on upstream `main` at `v0.13.1
   the desktop screen-capture loopback. Choose the audio source in Settings > Beat Sync. There is
   no implicit default source.
 - VRM playback uses the upstream `idle_loop.vrma` as the bundled fallback. Custom VRM animations
-  are user-local and are not distributed with this release. Missing animation requests fail with a
-  console warning instead of breaking the stage.
+  are user-local and are not distributed with this release. Import `.vrma` files in Models > VRM
+  Animations and bind them to each emotion. Missing animation requests fail with a console warning
+  instead of breaking the stage.
 - Closing the Stage window now hides AIRI to the tray instead of quitting the process.
 - Shortcut defaults changed to `Ctrl+Alt+Shift+A` for Spotlight and `Ctrl+Alt+Shift+Space` for
   Push to Talk. Existing PTT settings migrate once from the old default.
