@@ -360,6 +360,17 @@ async function playVrmEmotionAnimation(name: Emotion) {
   }
   await vrmViewerRef.value?.playGesture(url, { fadeMs: 450 })
 }
+
+async function playVrmMotion(name: string, options: { loop?: boolean, repetitions?: number, fadeMs?: number, returnToIdle?: boolean } = {}) {
+  const asset = vrmAnimationsStore.findAnimationByName(name)
+  if (asset) {
+    const url = await vrmAnimationsStore.getAnimationUrl(asset.id)
+    if (url)
+      return await vrmViewerRef.value?.playGesture(url, options) ?? false
+  }
+  return await vrmViewerRef.value?.playGesture(name, options) ?? false
+}
+
 const { stageModelUnavailable } = storeToRefs(useSettingsStageModel())
 // Before the card store is ready, no card owns the Stage yet, so an empty Stage is not a missing model.
 // `missing`: the card has no model. `unavailable`: this device cannot load the model of the card.
@@ -393,7 +404,12 @@ const live2d = createLive2D({
 })
 useSharedLive2DExpressionPreview(live2d, selectedCharacterId, () => selectedAvatarModel.value?.id)
 
-const emotionsQueue = createQueue<EmotionPayload>({
+interface StageEmotionPayload extends EmotionPayload {
+  /** True when this ACT already played an explicit body motion. */
+  suppressVrmBodyAnimation?: boolean
+}
+
+const emotionsQueue = createQueue<StageEmotionPayload>({
   handlers: [
     async (ctx) => {
       if (stageModelRenderer.value === 'vrm') {
@@ -404,7 +420,8 @@ const emotionsQueue = createQueue<EmotionPayload>({
 
         // Hold through the whole response; reset when speechVoicing drops.
         await vrmViewerRef.value!.setExpression(value, ctx.data.intensity, speechVoicing.value ? 0 : 3000)
-        await playVrmEmotionAnimation(ctx.data.name)
+        if (!ctx.data.suppressVrmBodyAnimation)
+          await playVrmEmotionAnimation(ctx.data.name)
       }
       else if (stageModelRenderer.value === 'live2d') {
         currentMotion.value = { group: EMOTION_EmotionMotionName_value[ctx.data.name] }
@@ -453,6 +470,7 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
   if (signal.type === 'act') {
     const act = normalizeActPayload(signal.payload)
     let explicitLive2DMotion = false
+    let explicitVrmMotion = false
 
     if (stageModelRenderer.value === 'live2d') {
       if (act.motion) {
@@ -474,11 +492,12 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
       // Talk gestures follow the voice. Emotional body motions play once; the
       // face expression remains held by speechEmotionActive for the response.
       const loop = isTalkMotion && !speechMuted.value
-      const played = await vrmViewerRef.value?.playGesture(act.motion, {
+      const played = await playVrmMotion(act.motion, {
         loop,
         repetitions: 1,
         fadeMs: 450,
       })
+      explicitVrmMotion = played === true
       activeSpeechMotion.value = played && loop ? act.motion : undefined
       if (activeSpeechMotion.value) {
         // Safety cap only: speechVoicing releases the loop at response end.
@@ -500,7 +519,10 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
       console.debug('emotion detected', emotion)
       if (speechVoicing.value)
         speechEmotionActive.value = true
-      emotionsQueue.enqueue(emotion)
+      emotionsQueue.enqueue({
+        ...emotion,
+        suppressVrmBodyAnimation: explicitVrmMotion,
+      })
     }
     return
   }

@@ -16,6 +16,8 @@ import { useBroadcastChannel } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 
+import { useVrmAnimationCatalogStore } from './vrm-animation-catalog'
+
 interface VrmAnimationBindingBroadcast {
   avatarModelId: string
   animations: VrmAnimationBindings
@@ -34,6 +36,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
   const assets = ref<VrmAnimationAsset[]>([])
   const loading = ref(false)
   const error = ref<string>()
+  const catalogStore = useVrmAnimationCatalogStore()
   const bindingsByModel = useLocalStorageManualReset<Record<string, VrmAnimationBindings>>(
     'settings/vrm/animation-bindings',
     () => ({}),
@@ -68,6 +71,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
     error.value = undefined
     try {
       assets.value = await defineInvoke(getContext(), electronVrmAnimationsList)()
+      catalogStore.replace(assets.value)
     }
     catch (cause) {
       error.value = errorMessageFrom(cause)
@@ -88,6 +92,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
       data: await file.arrayBuffer(),
     })
     assets.value = [...assets.value, asset].sort((a, b) => a.name.localeCompare(b.name))
+    catalogStore.add(asset)
     return asset
   }
 
@@ -101,6 +106,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
       objectUrls.delete(id)
     }
     assets.value = assets.value.filter(asset => asset.id !== id)
+    catalogStore.remove(id)
   }
 
   async function getAnimationUrl(id: string): Promise<string | undefined> {
@@ -129,6 +135,15 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
     await defineInvoke(getContext(), electronVrmAnimationReveal)()
   }
 
+  /** Resolves an ACT motion name to a user-local library asset. */
+  function findAnimationByName(name: string) {
+    const normalized = name.trim().toLowerCase()
+    if (!normalized)
+      return undefined
+    const source = assets.value.length > 0 ? assets.value : catalogStore.assets
+    return source.find(asset => asset.name.trim().toLowerCase() === normalized)
+  }
+
   /** Updates every window and persists the binding for this display model. */
   function setBindings(modelId: string, animations: VrmAnimationBindings) {
     bindingsByModel.value = { ...bindingsByModel.value, [modelId]: animations }
@@ -148,6 +163,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
     objectUrls.clear()
     assets.value = []
     bindingsByModel.reset()
+    catalogStore.reset()
     error.value = undefined
   }
 
@@ -166,6 +182,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
     removeAnimation,
     getAnimationUrl,
     reveal,
+    findAnimationByName,
     setBindings,
     resolveBindings,
     reset,

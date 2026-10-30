@@ -56,6 +56,13 @@ react to the game.
   folder, and binding an animation to each supported emotion or to the looping idle.
 - User animations live under `app.getPath('userData')/vrm-animations` and never enter the source
   tree or release artifacts.
+- Imported animation names are added to the VRM system prompt as an ACT motion library. The agent
+  can emit `<|ACT {"emotion":"angry","motion":"Standing Arguing"}|>` and the stage resolves the
+  motion name to the local file.
+- Explicit ACT `motion` requests take priority over emotion-bound body animations. The emotion still
+  drives the face.
+- VRMA expression and look-at tracks are removed before playback so body clips cannot fight the
+  expression, blink, or eye-tracking controllers.
 - Updated the VRM animation index to expose only the upstream idle animation.
 - Updated `VRMModel.vue` so a missing requested animation logs
   `animation for "<name>" not found` and returns without throwing.

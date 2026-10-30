@@ -44,7 +44,26 @@ export async function clipFromVRMAnimation(vrm?: VRMCore, animation?: VRMAnimati
   }
 
   // create animation clip
-  return createVRMAnimationClip(animation, vrm)
+  return stripVrmNonBodyTracks(createVRMAnimationClip(animation, vrm), vrm)
+}
+
+/**
+ * Body clips must not drive the face or the look-at proxy.
+ *
+ * VRMA files can contain expression and look-at tracks. Those channels belong
+ * to useVRMEmote, useBlink, and the interaction look-at controller. Keeping
+ * them in a user body clip makes two systems write the same properties.
+ */
+export function stripVrmNonBodyTracks(clip: AnimationClip, vrm: VRMCore) {
+  const expressionTrackNames = new Set(
+    vrm.expressionManager?.expressions.map(expression => `${expression.name}.weight`) ?? [],
+  )
+  clip.tracks = clip.tracks.filter(track =>
+    !expressionTrackNames.has(track.name)
+    && track.name !== 'lookAtQuaternionProxy.quaternion'
+    && track.name !== 'VRMLookAtQuaternionProxy.quaternion',
+  )
+  return clip
 }
 
 /**

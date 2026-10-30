@@ -8,6 +8,7 @@ import { splitCard } from '../../libs/character-card-sync'
 import { useDisplayModelsStore } from '../display-models'
 import { useProviderStore } from '../providers/provider'
 import { useSettingsStageModel } from '../settings/stage-model'
+import { useVrmAnimationCatalogStore } from '../vrm-animation-catalog'
 import { useAiriCardStore } from './airi-card'
 import { useConsciousnessStore } from './consciousness'
 import { useSpeechStore } from './speech'
@@ -775,6 +776,17 @@ describe('airi-card store', () => {
     await expect(cardStore.updateVrmAnimationBindings(cardId, 'missing-avatar-model', {
       happy: 'animation-happy',
     })).resolves.toBe(false)
+
+    const catalog = useVrmAnimationCatalogStore()
+    catalog.replace([{
+      id: 'animation-standing-arguing',
+      name: 'Standing Arguing',
+      size: 1024,
+      importedAt: new Date(0).toISOString(),
+    }])
+    expect(cardStore.systemPrompt).toContain('VRM body motion library')
+    expect(cardStore.systemPrompt).toContain('- "Standing Arguing"')
+    expect(cardStore.systemPrompt).toContain('<|ACT {"emotion":"happy","motion":"Standing Arguing"}|>')
   })
 
   it('stores Live2D control policy on the selected Avatar Model', async () => {

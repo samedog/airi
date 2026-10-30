@@ -1,10 +1,10 @@
 import type { VRMCore } from '@pixiv/three-vrm-core'
 
 import { VRMCore as Core, VRMHumanoid } from '@pixiv/three-vrm-core'
-import { AnimationClip, AnimationMixer, Group, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three'
+import { AnimationClip, AnimationMixer, Group, NumberKeyframeTrack, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { reAnchorRootPositionTrack, useBlink } from './animation'
+import { reAnchorRootPositionTrack, stripVrmNonBodyTracks, useBlink } from './animation'
 
 /** Creates a real normalized rig without a model file or a renderer. */
 function createRig() {
@@ -233,5 +233,22 @@ describe('useBlink', () => {
     for (let i = 0; i < 64; i++)
       blink.update(vrm, 0.016)
     expect(lastBlinkValue(vrm)).toBeGreaterThan(0)
+  })
+
+  it('strips expression and look-at tracks from body clips', () => {
+    const clip = new AnimationClip('body', 1, [
+      new NumberKeyframeTrack('happy.weight', [0], [1]),
+      new QuaternionKeyframeTrack('lookAtQuaternionProxy.quaternion', [0], [0, 0, 0, 1]),
+      new QuaternionKeyframeTrack('hips.quaternion', [0], [0, 0, 0, 1]),
+    ])
+    const vrm = {
+      expressionManager: {
+        expressions: [{ name: 'happy' }],
+      },
+    } as unknown as VRMCore
+
+    stripVrmNonBodyTracks(clip, vrm)
+
+    expect(clip.tracks.map(track => track.name)).toEqual(['hips.quaternion'])
   })
 })
