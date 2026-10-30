@@ -6,6 +6,7 @@ import type { BeatSyncDetectorEventMap, BeatSyncDetectorState } from './types'
 import analyserWorklet from '@nekopaw/tempora/worklet?url'
 
 import { defineInvoke, defineInvokeHandler } from '@moeru/eventa'
+import { errorMessageFrom } from '@moeru/std'
 import { startAnalyser as startTemporaAnalyser } from '@nekopaw/tempora'
 import { setupElectronScreenCapture } from '@proj-airi/electron-screen-capture/renderer'
 
@@ -20,13 +21,14 @@ import {
   beatSyncUpdateParametersInvokeEventa,
   createContext,
 } from './eventa'
+import { createLinuxSystemAudioNode } from './linux-audio'
 
 export const inputAnalyserFFTSize = 1024
 
 export interface BeatSyncDetector {
   start: (createSource: (context: AudioContext) => Promise<AudioNode>) => Promise<void>
   updateParameters: (params: Partial<AnalyserWorkletParameters>) => void
-  startScreenCapture: () => Promise<void>
+  startScreenCapture: (sourceId?: string) => Promise<void>
   stop: () => void
   on: <E extends keyof BeatSyncDetectorEventMap>(event: E, listener: BeatSyncDetectorEventMap[E]) => () => void
   off: <E extends keyof BeatSyncDetectorEventMap>(event: E, listener: BeatSyncDetectorEventMap[E]) => void
@@ -122,79 +124,105 @@ export function createBeatSyncDetector(options: CreateBeatSyncDetectorOptions): 
     analyser?.updateParameters(params)
   }
 
-  const startScreenCapture = async () => start(async (ctx) => {
-    switch (options.env) {
-      case StageEnvironment.Web: {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-          video: true,
-        })
+  const startScreenCapture = async (sourceId?: string) => {
+    if (!sourceId)
+      throw new Error('Select a Beat Sync audio source before starting')
 
-        if (stream.getAudioTracks().length === 0) {
-          throw new Error('No audio track available in the stream')
-        }
+    return start(async (ctx) => {
+      switch (options.env) {
+        case StageEnvironment.Web: {
+          if (sourceId !== 'system')
+            throw new Error('This audio source is not available in the current environment')
 
-        stream.getAudioTracks().forEach((track) => {
-          let stopCalled = false
-          track.addEventListener('ended', () => {
-            if (stopCalled)
-              return
-            stopCalled = true
-            stop()
-          })
-        })
-
-        const node = ctx.createMediaStreamSource(stream)
-        stopSource = () => {
-          stream.getTracks().forEach(track => track.stop())
-        }
-
-        return node
-      }
-      case StageEnvironment.Tamagotchi: {
-        if (!isElectronWindow(window)) {
-          throw new Error(`Electron window is required for this environment: ${options.env}`)
-        }
-
-        // FIXME(Makito): Will refactor later
-        const { createContext } = await import('@moeru/eventa/adapters/electron/renderer')
-        const { selectWithSource } = setupElectronScreenCapture(createContext(window.electron.ipcRenderer).context)
-
-        const stream = await selectWithSource(
-          (sources: SerializableDesktopCapturerSource[]) => {
-            if (sources.length === 0)
-              throw new Error('No screen source available')
-            return sources[0].id
-          },
-          async () => await navigator.mediaDevices.getDisplayMedia({
+          const stream = await navigator.mediaDevices.getDisplayMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
             video: true,
-            audio: true,
-          }),
-          { sourcesOptions: { types: ['screen'] } },
-        )
+          })
 
-        const videoTracks = stream.getVideoTracks()
+          if (stream.getAudioTracks().length === 0) {
+            throw new Error('No audio track available in the stream')
+          }
 
-        videoTracks.forEach((track: MediaStreamTrack) => {
-          track.stop()
-          stream.removeTrack(track)
-        })
+          stream.getAudioTracks().forEach((track) => {
+            let stopCalled = false
+            track.addEventListener('ended', () => {
+              if (stopCalled)
+                return
+              stopCalled = true
+              stop()
+            })
+          })
 
-        const node = ctx.createMediaStreamSource(stream)
-        stopSource = () => {
-          stream.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+          const node = ctx.createMediaStreamSource(stream)
+          stopSource = () => {
+            stream.getTracks().forEach(track => track.stop())
+          }
+
+          return node
         }
+        case StageEnvironment.Tamagotchi: {
+          if (!isElectronWindow(window)) {
+            throw new Error(`Electron window is required for this environment: ${options.env}`)
+          }
 
-        return node
+          if (window.platform === 'linux') {
+            try {
+              const { node, stop } = await createLinuxSystemAudioNode(ctx, window, sourceId)
+              stopSource = stop
+              return node
+            }
+            catch (error) {
+              const message = errorMessageFrom(error) ?? 'unknown error'
+              console.warn('[beat-sync] Linux audio capture failed', error)
+              // Deliberately do not fall back to Electron display capture on Linux: it may capture the
+              // microphone or every system source instead of the source selected by the user.
+              throw new Error(`Linux audio capture failed: ${message}`)
+            }
+          }
+
+          if (sourceId !== 'system')
+            throw new Error('This audio source is not available in the current environment')
+
+          // FIXME(Makito): Will refactor later
+          const { createContext } = await import('@moeru/eventa/adapters/electron/renderer')
+          const { selectWithSource } = setupElectronScreenCapture(createContext(window.electron.ipcRenderer).context)
+
+          const stream = await selectWithSource(
+            (sources: SerializableDesktopCapturerSource[]) => {
+              if (sources.length === 0)
+                throw new Error('No screen source available')
+              return sources[0].id
+            },
+            async () => await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: true,
+            }),
+            { sourcesOptions: { types: ['screen'] } },
+          )
+
+          const videoTracks = stream.getVideoTracks()
+
+          videoTracks.forEach((track: MediaStreamTrack) => {
+            track.stop()
+            stream.removeTrack(track)
+          })
+
+          const node = ctx.createMediaStreamSource(stream)
+          stopSource = () => {
+            stream.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+          }
+
+          return node
+        }
+        default:
+          throw new Error('Failed to start screen capture: Unsupported environment')
       }
-      default:
-        throw new Error('Failed to start screen capture: Unsupported environment')
-    }
-  })
+    })
+  }
 
   const off = <E extends keyof BeatSyncDetectorEventMap>(event: E, listener: BeatSyncDetectorEventMap[E]) => {
     const listenerFns = listeners[event]
@@ -251,8 +279,8 @@ function getDetector() {
 let context: ReturnType<typeof createContext> | undefined
 
 function installCapacitorHandlers(context: ReturnType<typeof createContext>) {
-  defineInvokeHandler(context, beatSyncToggleInvokeEventa, async (enabled) => {
-    if (enabled)
+  defineInvokeHandler(context, beatSyncToggleInvokeEventa, async (request) => {
+    if (request.enabled)
       throw new Error('Beat Sync is not available in Stage Pocket')
   })
   defineInvokeHandler(context, beatSyncGetStateInvokeEventa, async () => ({ isActive: false }))
@@ -280,10 +308,10 @@ export function isBeatSyncSupported() {
   return isStageWeb() || isStageTamagotchi()
 }
 
-export function toggleBeatSync(enabled: boolean) {
+export function toggleBeatSync(enabled: boolean, sourceId?: string) {
   if (isStageWeb()) {
     if (enabled) {
-      return getDetector().startScreenCapture()
+      return getDetector().startScreenCapture(sourceId)
     }
     else {
       return getDetector().stop()
@@ -292,7 +320,7 @@ export function toggleBeatSync(enabled: boolean) {
 
   if (isStageTamagotchi() || isStageCapacitor()) {
     const toggleFn = defineInvoke(getContext(), beatSyncToggleInvokeEventa)
-    return toggleFn(enabled)
+    return toggleFn({ enabled, sourceId })
   }
 
   throw new Error('Unknown environment for beatSyncToggle()')

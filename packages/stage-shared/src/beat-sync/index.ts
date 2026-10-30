@@ -1,3 +1,5 @@
+export * from './audio-capture'
+export * from './audio-sources'
 export * from './detector'
 export * from './eventa'
 export * from './settings'

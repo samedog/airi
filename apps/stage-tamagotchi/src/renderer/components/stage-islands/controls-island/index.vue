@@ -23,10 +23,10 @@ import IndicatorMicVolume from './indicator-mic-volume.vue'
 
 import {
   electron,
-  electronAppQuit,
   electronCenterMainWindow,
   electronOpenSettings,
   electronStartDraggingWindow,
+  electronWindowClose,
   electronWindowSetAlwaysOnTop,
 } from '../../../../shared/eventa'
 import { useControlsIslandLayout } from './use-controls-island-layout'
@@ -77,7 +77,7 @@ const { enabled } = storeToRefs(settingsAudioDeviceStore)
 const { alwaysOnTop, controlsIslandIconSize } = storeToRefs(settingsStore)
 const openSettings = useElectronEventaInvoke(electronOpenSettings)
 const isLinux = useElectronEventaInvoke(electron.app.isLinux)
-const quitApp = useElectronEventaInvoke(electronAppQuit)
+const closeWindow = useElectronEventaInvoke(electronWindowClose)
 const setAlwaysOnTop = useElectronEventaInvoke(electronWindowSetAlwaysOnTop)
 const centerMainWindow = useElectronEventaInvoke(electronCenterMainWindow)
 
@@ -582,7 +582,7 @@ function resetMainWindowPosition() {
                         :button-style="adjustStyleClasses.button"
                         :aria-label="t('tamagotchi.stage.controls-island.close')"
                         :class="['hover:bg-red-500 hover:text-white']"
-                        @click="() => quitApp()"
+                        @click="() => closeWindow()"
                       >
                         <div :class="['i-solar:close-circle-outline', adjustStyleClasses.icon]" />
                       </ControlButton>

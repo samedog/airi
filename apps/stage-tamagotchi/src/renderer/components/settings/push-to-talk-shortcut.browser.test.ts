@@ -51,7 +51,7 @@ describe('push to talk shortcut recorder', () => {
   it('rejects Shift+Space, because Shift alone occurs in ordinary typing', async () => {
     const { view, showError } = await renderRecorder()
 
-    await view.getByRole('button', { name: 'Ctrl + Shift + Space' }).click()
+    await view.getByRole('button', { name: 'Ctrl + Alt + Shift + Space' }).click()
     await userEvent.keyboard('{Shift>}{Space}{/Shift}')
 
     await vi.waitFor(() => expect(showError).toHaveBeenCalledWith('tamagotchi.settings.pages.system.window-shortcuts.errors.requiresHoldModifier'))
@@ -61,7 +61,7 @@ describe('push to talk shortcut recorder', () => {
   it('rejects Shift with a letter', async () => {
     const { view, showError } = await renderRecorder()
 
-    await view.getByRole('button', { name: 'Ctrl + Shift + Space' }).click()
+    await view.getByRole('button', { name: 'Ctrl + Alt + Shift + Space' }).click()
     await userEvent.keyboard('{Shift>}{KeyA}{/Shift}')
 
     await vi.waitFor(() => expect(showError).toHaveBeenCalledWith('tamagotchi.settings.pages.system.window-shortcuts.errors.requiresHoldModifier'))
@@ -71,7 +71,7 @@ describe('push to talk shortcut recorder', () => {
   it('accepts a function key with Shift', async () => {
     const { view, showError } = await renderRecorder()
 
-    await view.getByRole('button', { name: 'Ctrl + Shift + Space' }).click()
+    await view.getByRole('button', { name: 'Ctrl + Alt + Shift + Space' }).click()
     await userEvent.keyboard('{Shift>}{F2}{/Shift}')
 
     await vi.waitFor(() => expect(storedAccelerator()).toEqual({ modifiers: ['shift'], key: 'F2' }))
@@ -81,7 +81,7 @@ describe('push to talk shortcut recorder', () => {
   it('accepts Alt with a letter', async () => {
     const { view, showError } = await renderRecorder()
 
-    await view.getByRole('button', { name: 'Ctrl + Shift + Space' }).click()
+    await view.getByRole('button', { name: 'Ctrl + Alt + Shift + Space' }).click()
     await userEvent.keyboard('{Alt>}{KeyP}{/Alt}')
 
     await vi.waitFor(() => expect(storedAccelerator()).toEqual({ modifiers: ['alt'], key: 'KeyP' }))
@@ -92,15 +92,15 @@ describe('push to talk shortcut recorder', () => {
     // Review: https://github.com/moeru-ai/airi/pull/2729#discussion_r4239027482
     listShortcuts.mockResolvedValue([
       { id: 'spotlight', accelerator: { modifiers: ['ctrl', 'alt'], key: 'KeyP' }, scope: 'global' },
-      { id: 'voice-push-to-talk', accelerator: { modifiers: ['ctrl', 'shift'], key: 'Space' }, scope: 'global', receiveKeyUps: true },
+      { id: 'voice-push-to-talk', accelerator: { modifiers: ['ctrl', 'alt', 'shift'], key: 'Space' }, scope: 'global', receiveKeyUps: true },
     ])
     const { view, showError } = await renderRecorder()
 
-    await view.getByRole('button', { name: 'Ctrl + Shift + Space' }).click()
+    await view.getByRole('button', { name: 'Ctrl + Alt + Shift + Space' }).click()
     await userEvent.keyboard('{Control>}{Alt>}{KeyP}{/Alt}{/Control}')
 
     await vi.waitFor(() => expect(showError).toHaveBeenCalledWith('tamagotchi.settings.pages.system.window-shortcuts.errors.conflict'))
-    expect(storedAccelerator()).toEqual({ modifiers: ['ctrl', 'shift'], key: 'Space' })
+    expect(storedAccelerator()).toEqual({ modifiers: ['ctrl', 'alt', 'shift'], key: 'Space' })
   })
 
   it('accepts its own registered key combination', async () => {
@@ -109,7 +109,7 @@ describe('push to talk shortcut recorder', () => {
     ])
     const { view, showError } = await renderRecorder()
 
-    await view.getByRole('button', { name: 'Ctrl + Shift + Space' }).click()
+    await view.getByRole('button', { name: 'Ctrl + Alt + Shift + Space' }).click()
     await userEvent.keyboard('{Alt>}{KeyP}{/Alt}')
 
     await vi.waitFor(() => expect(storedAccelerator()).toEqual({ modifiers: ['alt'], key: 'KeyP' }))

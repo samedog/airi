@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
+import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
 import type { VrmInteractionTarget } from '@proj-airi/stage-ui-three'
 
@@ -145,6 +146,17 @@ const {
   spineRenderScale,
 } = storeToRefs(settingsStore)
 const { mouthOpenSize, nowSpeaking } = storeToRefs(useSpeakingStore())
+/** Loop gestures currently owned by a spoken line; stopped when playback drains. */
+const activeSpeechMotion = ref<string>()
+/** A held VRM expression must return to neutral when the whole response ends. */
+const speechEmotionActive = ref(false)
+let speechMotionWatchdog: ReturnType<typeof setTimeout> | undefined
+
+function clearSpeechMotionWatchdog() {
+  if (speechMotionWatchdog)
+    clearTimeout(speechMotionWatchdog)
+  speechMotionWatchdog = undefined
+}
 /** `voicing` of `SpeechOutputPlaybackState` in the speech bus. The voice output below keeps it. */
 const speechVoicing = shallowRef(false)
 const disposePlaybackStateHandler = defineInvokeHandler(
@@ -157,6 +169,23 @@ const disposePlaybackStateHandler = defineInvokeHandler(
 watch([nowSpeaking, speechVoicing], ([speaking, voicing]) => {
   getSpeechBusContext().emit(speechOutputPlaybackStateChangedEvent, { speaking, voicing })
 }, { immediate: true })
+// `speechVoicing` stays true through the pauses between sentences, unlike
+// `nowSpeaking`, so loops and facial expressions span the whole response.
+watch(speechVoicing, (voicing) => {
+  if (voicing)
+    return
+  if (speechEmotionActive.value) {
+    speechEmotionActive.value = false
+    if (stageModelRenderer.value === 'vrm')
+      vrmViewerRef.value?.resetExpression()
+  }
+  if (!activeSpeechMotion.value)
+    return
+  clearSpeechMotionWatchdog()
+  activeSpeechMotion.value = undefined
+  if (stageModelRenderer.value === 'vrm')
+    vrmViewerRef.value?.stopGesture(450)
+})
 const { audioContext } = useAudioContext()
 const currentAudioSource = ref<AudioBufferSourceNode>()
 const speechOutputControlStore = useSpeechOutputControlStore()
@@ -308,7 +337,8 @@ const emotionsQueue = createQueue<EmotionPayload>({
         if (!value)
           return
 
-        await vrmViewerRef.value!.setExpression(value, ctx.data.intensity)
+        // Hold through the whole response; reset when speechVoicing drops.
+        await vrmViewerRef.value!.setExpression(value, ctx.data.intensity, speechVoicing.value ? 0 : 3000)
       }
       else if (stageModelRenderer.value === 'live2d') {
         currentMotion.value = { group: EMOTION_EmotionMotionName_value[ctx.data.name] }
@@ -372,6 +402,29 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
       }
     }
 
+    if (stageModelRenderer.value === 'vrm' && act.motion) {
+      clearSpeechMotionWatchdog()
+      const isTalkMotion = act.motion.startsWith('talk_')
+      // Talk gestures follow the voice. Emotional body motions play once; the
+      // face expression remains held by speechEmotionActive for the response.
+      const loop = isTalkMotion && !speechMuted.value
+      const played = await vrmViewerRef.value?.playGesture(act.motion, {
+        loop,
+        repetitions: 1,
+        fadeMs: 450,
+      })
+      activeSpeechMotion.value = played && loop ? act.motion : undefined
+      if (activeSpeechMotion.value) {
+        // Safety cap only: speechVoicing releases the loop at response end.
+        speechMotionWatchdog = setTimeout(() => {
+          if (!activeSpeechMotion.value)
+            return
+          activeSpeechMotion.value = undefined
+          vrmViewerRef.value?.stopGesture()
+        }, 60000)
+      }
+    }
+
     if (act.emotion && !explicitLive2DMotion) {
       const emotion = toStageEmotionPayload(act.emotion)
       if (!emotion)
@@ -379,6 +432,8 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
 
       // eslint-disable-next-line no-console
       console.debug('emotion detected', emotion)
+      if (speechVoicing.value)
+        speechEmotionActive.value = true
       emotionsQueue.enqueue(emotion)
     }
     return
@@ -424,30 +479,121 @@ const playback = new Playback(new BrowserPlayback(audioContext, {
   destination: speechAnalysis,
   onSource: (source) => { currentAudioSource.value = source },
 }))
+
+/**
+ * Every VoiceResponse opens its own playback group, and OutputGroup queues are
+ * independent. Gate each group's first clip on the previous group draining so
+ * chat replies and spark notifications queue instead of talking over each other.
+ */
+function createSerializedPlayback(inner: AudioPlayback): AudioPlayback {
+  let gate: Promise<void> = Promise.resolve()
+
+  return {
+    nowMs: () => inner.nowMs(),
+    openGroup(label: string) {
+      const group = inner.openGroup(label)
+      let acquired = false
+      let released = false
+      let releaseGate: (() => void) | undefined
+
+      const release = () => {
+        if (released)
+          return
+        released = true
+        releaseGate?.()
+      }
+
+      return {
+        id: group.id,
+        label: group.label,
+        async enqueue(clip: PlaybackClip) {
+          if (!acquired && !released) {
+            acquired = true
+            const previous = gate
+            gate = new Promise<void>((resolve) => {
+              releaseGate = resolve
+            })
+            await previous
+          }
+          return group.enqueue(clip)
+        },
+        async finish() {
+          try {
+            return await group.finish()
+          }
+          finally {
+            release()
+          }
+        },
+        async stop(options: { fadeMs: number }) {
+          try {
+            return await group.stop(options)
+          }
+          finally {
+            release()
+          }
+        },
+      }
+    },
+  }
+}
+
+const serializedPlayback = createSerializedPlayback(playback)
+const pendingSpecials = new Map<string, string[]>()
+const startedSpeechTurns = new Set<string>()
 let playingCount = 0
 
 function resetSpeakingState() {
   nowSpeaking.value = false
   mouthOpenSize.value = 0
+  // Drop the last source reference so VRM/MMD lip-sync nodes disconnect and
+  // zero their viseme weights instead of holding the last mouth shape.
+  currentAudioSource.value = undefined
 }
 
 // A response leaves the active turns after its playback drains, or at once
 // when it is canceled or interrupted.
 watch(() => voice.activeTurns, (turns) => {
-  if (turns.length === 0)
+  if (turns.length === 0) {
     speechVoicing.value = false
+    // A canceled or failed turn can skip its playback-end callback. Reset the
+    // whole speech state so a stale playingCount cannot leave the mouth open
+    // or keep a looping emotion gesture alive forever.
+    playingCount = 0
+    pendingSpecials.clear()
+    startedSpeechTurns.clear()
+    resetSpeakingState()
+  }
 })
 
 const cards = useAiriCardStore()
 const disconnectVoiceOutput = voice.connectOutput((turn) => {
   const output = {
-    playback,
-    onSpecial: (special: string) => void playSpecialToken(special, { turnId: turn.turnId }),
+    playback: serializedPlayback,
+    onSpecial: (special: string) => {
+      // ACT tokens stream with the text, well before TTS synthesis finishes.
+      // Hold them until this turn's first audio actually starts so the gesture
+      // and the voice begin together. Later tokens follow the next sentence.
+      if (startedSpeechTurns.has(turn.turnId)) {
+        void playSpecialToken(special, { turnId: turn.turnId })
+        return
+      }
+      const pending = pendingSpecials.get(turn.turnId) ?? []
+      pending.push(special)
+      pendingSpecials.set(turn.turnId, pending)
+    },
     onPlaybackStart: ({ text }: { text: string }) => {
       playingCount += 1
       nowSpeaking.value = true
       speechVoicing.value = true
       assistantCaption.value += ` ${text}`
+      startedSpeechTurns.add(turn.turnId)
+      const pending = pendingSpecials.get(turn.turnId)
+      if (pending?.length) {
+        pendingSpecials.delete(turn.turnId)
+        for (const special of pending)
+          void playSpecialToken(special, { turnId: turn.turnId })
+      }
       try {
         postCaption({ type: 'caption-assistant', text })
         postPresent({ type: 'assistant-append', text })
@@ -457,9 +603,12 @@ const disconnectVoiceOutput = voice.connectOutput((turn) => {
       }
     },
     onPlaybackEnd: () => {
-      playingCount -= 1
-      if (playingCount === 0)
+      playingCount = Math.max(0, playingCount - 1)
+      if (playingCount === 0) {
+        pendingSpecials.delete(turn.turnId)
+        startedSpeechTurns.delete(turn.turnId)
         resetSpeakingState()
+      }
     },
   }
   if (speechMuted.value)
@@ -684,6 +833,9 @@ async function captureCharacterFrame() {
 }
 
 onUnmounted(() => {
+  clearSpeechMotionWatchdog()
+  pendingSpecials.clear()
+  startedSpeechTurns.clear()
   live2d.dispose()
   disposePlaybackStateHandler()
   resetLive2dLipSync()
@@ -703,9 +855,25 @@ defineExpose({
    */
   captureFrame: captureCharacterFrame,
   readRenderTargetRegionAtClientPoint,
-  setExpression: async (expression: string, intensity = 1) => {
+  setExpression: async (expression: string, intensity = 1, holdMs = 3000) => {
     if (stageModelRenderer.value === 'vrm') {
-      await vrmViewerRef.value?.setExpression(expression, intensity)
+      await vrmViewerRef.value?.setExpression(expression, intensity, holdMs)
+    }
+  },
+  resetExpression: () => {
+    if (stageModelRenderer.value === 'vrm') {
+      vrmViewerRef.value?.resetExpression()
+    }
+  },
+  playGesture: async (name: string, options?: { loop?: boolean, fadeMs?: number, returnToIdle?: boolean }) => {
+    if (stageModelRenderer.value === 'vrm') {
+      return vrmViewerRef.value?.playGesture(name, options)
+    }
+    return false
+  },
+  stopGesture: (fadeMs?: number) => {
+    if (stageModelRenderer.value === 'vrm') {
+      vrmViewerRef.value?.stopGesture(fadeMs)
     }
   },
 })

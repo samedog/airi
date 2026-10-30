@@ -19,9 +19,9 @@ const detector = createBeatSyncDetector({ env: StageEnvironment.Tamagotchi })
 detector.on('stateChange', state => void signalState(state))
 detector.on('beat', event => void signalBeat(event))
 
-defineInvokeHandler(context, beatSyncToggleInvokeEventa, async (enabled) => {
-  if (enabled)
-    await detector.startScreenCapture()
+defineInvokeHandler(context, beatSyncToggleInvokeEventa, async (request) => {
+  if (request.enabled)
+    await detector.startScreenCapture(request.sourceId)
   else
     detector.stop()
 })

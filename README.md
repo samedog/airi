@@ -14,6 +14,19 @@
 
 <h1 align="center">Project AIRI</h1>
 
+> [!NOTE]
+> This is **samedog's WF/AIRI fork**, a Linux/Wayland-focused build of Project AIRI.
+> It carries a small custom patch set on the fork's `main` branch, based on upstream `main` at
+> `v0.13.1`.
+>
+> The Linux-only feature is Beat Sync system audio capture through `parec` and PipeWire/PulseAudio.
+> It records a selected monitor source instead of using screen-capture loopback.
+> Other desktop fixes target KDE and Wayland but remain cross-platform in source.
+> This fork is not a replacement for upstream and does not drop support for other platforms.
+>
+> See [CUSTOMIZATIONS.md](./CUSTOMIZATIONS.md) for the full change list and update process.
+
+
 <p align="center">Re-creating Neuro-sama, a soul container of AI waifu / virtual characters to bring them into our world.</p>
 
 <p align="center">

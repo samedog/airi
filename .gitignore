@@ -87,6 +87,11 @@ components.d.ts
 **/assets/live2d/models/*
 **/assets/vrm/models/*
 
+# Mixamo-derived VRM animations are user-local. Only the upstream AIRI idle
+# animation is redistributable with the source.
+packages/stage-ui-three/src/assets/vrm/animations/*.vrma
+!packages/stage-ui-three/src/assets/vrm/animations/idle_loop.vrma
+
 # Serving fonts locally
 **/public/assets/fonts/
 

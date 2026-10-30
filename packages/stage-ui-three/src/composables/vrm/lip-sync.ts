@@ -29,11 +29,13 @@ export function useVRMLipSync(
   audioSource: Readonly<Ref<AudioBufferSourceNode | undefined>>,
 ) {
   const isLipSyncActive = ref(false)
+  const sourceActive = ref(false)
   const lipSyncNode = shallowRef<WLipSyncAudioNode>()
   const vowelDriver = createWLipSyncVowelDriver()
 
   watch(audioContext, (context, _, onCleanup) => {
     lipSyncNode.value = undefined
+    sourceActive.value = false
     vowelDriver.reset()
     isLipSyncActive.value = false
     if (!context)
@@ -62,18 +64,30 @@ export function useVRMLipSync(
   }, { immediate: true })
 
   watch([lipSyncNode, audioSource], ([node, source], _, onCleanup) => {
+    sourceActive.value = false
+    vowelDriver.reset()
     if (!node || !source)
       return
 
+    const onEnded = () => {
+      sourceActive.value = false
+      vowelDriver.reset()
+    }
+
+    source.addEventListener('ended', onEnded)
     try {
       source.connect(node)
     }
     catch (error) {
+      source.removeEventListener('ended', onEnded)
       console.error('[stage-ui-three] Failed to connect the VRM lip-sync node.', error)
       return
     }
 
+    sourceActive.value = true
     onCleanup(() => {
+      sourceActive.value = false
+      source.removeEventListener('ended', onEnded)
       try {
         source.disconnect(node)
       }
@@ -83,10 +97,19 @@ export function useVRMLipSync(
     })
   }, { immediate: true })
 
+  function clearVisemes(vrm?: VRMCore) {
+    if (!vrm?.expressionManager)
+      return
+    for (const vowel of WLIP_SYNC_VOWELS)
+      vrm.expressionManager.setValue(VRM_EXPRESSION_BY_VOWEL[vowel], 0)
+  }
+
   function update(vrm?: VRMCore, delta = 0.016) {
     const node = lipSyncNode.value
-    if (!vrm?.expressionManager || !node) {
+    const source = audioSource.value
+    if (!vrm?.expressionManager || !node || !source || !sourceActive.value) {
       isLipSyncActive.value = false
+      clearVisemes(vrm)
       return
     }
 

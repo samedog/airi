@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import type { BeatSyncDetectorState } from '@proj-airi/stage-shared/beat-sync'
+import type { BeatSyncAudioSource, BeatSyncDetectorState } from '@proj-airi/stage-shared/beat-sync'
 
+import { errorMessageFrom } from '@moeru/std'
 import {
   DEFAULT_BEAT_SYNC_PARAMETERS,
   getBeatSyncInputByteFrequencyData,
   getBeatSyncState,
+  listBeatSyncAudioSources,
   listenBeatSyncBeatSignal,
   listenBeatSyncStateChange,
   toggleBeatSync,
@@ -12,7 +14,7 @@ import {
 } from '@proj-airi/stage-shared/beat-sync'
 import { Alert, AudioSpectrumVisualizer } from '@proj-airi/stage-ui/components'
 import { useSettingsBeatSync } from '@proj-airi/stage-ui/stores/settings'
-import { Button, FieldCheckbox, FieldRange, SelectTab, SettingsCard } from '@proj-airi/ui'
+import { Button, FieldCheckbox, FieldRange, FieldSelect, SelectTab, SettingsCard } from '@proj-airi/ui'
 import { createTimeline } from 'animejs'
 import { nanoid } from 'nanoid'
 import { storeToRefs } from 'pinia'
@@ -24,7 +26,16 @@ const frequencies = ref<number[]>([])
 const totalFreqHistory = ref<number[]>([])
 const isUpdatingFrequencies = ref(false)
 const beatSyncSettings = useSettingsBeatSync()
-const { parameters, spectrumScale } = storeToRefs(beatSyncSettings)
+const { parameters, spectrumScale, audioSourceId } = storeToRefs(beatSyncSettings)
+const audioSources = ref<BeatSyncAudioSource[]>([])
+const isLoadingAudioSources = ref(false)
+const audioSourceError = ref<string>()
+const startError = ref<string>()
+const audioSourceOptions = computed(() => audioSources.value.map(source => ({
+  label: source.label,
+  value: source.id,
+  description: source.description,
+})))
 const spectrumScaleOptions = [
   { label: 'Linear', value: 'linear' as const, icon: 'i-solar:chart-2-bold-duotone' },
   { label: 'Logarithm', value: 'logarithm' as const, icon: 'i-solar:chart-bold-duotone' },
@@ -80,6 +91,50 @@ function resetDefaultParameters() {
   parameters.value = { ...DEFAULT_BEAT_SYNC_PARAMETERS }
 }
 
+async function loadAudioSources() {
+  isLoadingAudioSources.value = true
+  audioSourceError.value = undefined
+
+  try {
+    const sources = await listBeatSyncAudioSources()
+    audioSources.value = sources
+
+    if (audioSourceId.value && !sources.some(source => source.id === audioSourceId.value))
+      audioSourceId.value = ''
+  }
+  catch (error) {
+    audioSources.value = []
+    audioSourceError.value = errorMessageFrom(error) ?? 'Unable to list audio sources'
+  }
+  finally {
+    isLoadingAudioSources.value = false
+  }
+}
+
+async function startBeatSync() {
+  startError.value = undefined
+  if (!audioSourceId.value || state.value?.isActive)
+    return
+
+  try {
+    await toggleBeatSync(true, audioSourceId.value)
+  }
+  catch (error) {
+    startError.value = errorMessageFrom(error) ?? 'Failed to start Beat Sync'
+  }
+}
+
+async function stopBeatSync() {
+  startError.value = undefined
+
+  try {
+    await toggleBeatSync(false)
+  }
+  catch (error) {
+    startError.value = errorMessageFrom(error) ?? 'Failed to stop Beat Sync'
+  }
+}
+
 async function updateFrequencies() {
   frequencies.value = Array.from(await getBeatSyncInputByteFrequencyData())
   totalFreqHistory.value.push(frequencies.value.reduce((a, b) => a + b, 0))
@@ -119,6 +174,7 @@ watch(state, async (newState) => {
 }, { immediate: true, deep: true })
 
 onMounted(() => {
+  void loadAudioSources()
   getBeatSyncState().then(initialState => state.value = initialState)
 
   const removeHandlerFns = [
@@ -157,20 +213,64 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <FieldSelect
+            v-model="audioSourceId"
+            :label="t('settings.pages.modules.beat_sync.sections.audio_source.source.label')"
+            :description="t('settings.pages.modules.beat_sync.sections.audio_source.source.description')"
+            :placeholder="t('settings.pages.modules.beat_sync.sections.audio_source.source.placeholder')"
+            :options="audioSourceOptions"
+            :disabled="state?.isActive || isLoadingAudioSources"
+          />
+
           <div max-w-full flex="~ row gap-4 wrap">
+            <Button
+              variant="secondary"
+              :disabled="isLoadingAudioSources"
+              @click="loadAudioSources"
+            >
+              {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.refresh') }}
+            </Button>
+
             <template v-if="state?.isActive">
-              <Button @click="toggleBeatSync(false)">
+              <Button @click="stopBeatSync">
                 {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.stop') }}
               </Button>
             </template>
 
             <template v-else>
-              <Button @click="toggleBeatSync(true)">
-                {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.start_screen_capture') }}
+              <Button
+                :disabled="!audioSourceId || isLoadingAudioSources"
+                @click="startBeatSync"
+              >
+                {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.start') }}
               </Button>
             </template>
           </div>
         </div>
+
+        <Alert
+          v-if="audioSourceError"
+          type="error"
+        >
+          <template #title>
+            {{ t('settings.pages.modules.beat_sync.sections.audio_source.errors.list_failed') }}
+          </template>
+          <template #content>
+            {{ audioSourceError }}
+          </template>
+        </Alert>
+
+        <Alert
+          v-if="startError"
+          type="error"
+        >
+          <template #title>
+            {{ t('settings.pages.modules.beat_sync.sections.audio_source.errors.start_failed') }}
+          </template>
+          <template #content>
+            {{ startError }}
+          </template>
+        </Alert>
 
         <Alert
           v-if="noAudioDetected"

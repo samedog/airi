@@ -83,7 +83,7 @@ describe('usePushToTalkShortcut', () => {
     await vi.waitFor(() => expect(mocks.register).toHaveBeenCalledOnce())
     expect(mocks.register).toHaveBeenCalledWith(expect.objectContaining({
       id: 'voice-push-to-talk',
-      accelerator: { modifiers: ['ctrl', 'shift'], key: 'Space' },
+      accelerator: { modifiers: ['ctrl', 'alt', 'shift'], key: 'Space' },
       scope: 'global',
       receiveKeyUps: true,
     }))

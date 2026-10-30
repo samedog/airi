@@ -29,7 +29,7 @@ import { protectPrivilegedWindowNavigation, setupBaseWindowElectronInvokes, tran
 const SPOTLIGHT_WINDOW_WIDTH = 720
 const SPOTLIGHT_WINDOW_HEIGHT = 100
 const SPOTLIGHT_SHORTCUT_ID = 'spotlight'
-const defaultSpotlightAccelerator: ShortcutAccelerator = { modifiers: ['ctrl', 'shift'], key: 'KeyA' }
+const defaultSpotlightAccelerator: ShortcutAccelerator = { modifiers: ['ctrl', 'alt', 'shift'], key: 'KeyA' }
 
 export interface SpotlightWindowManager {
   show: () => Promise<void>

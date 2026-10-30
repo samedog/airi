@@ -679,9 +679,18 @@ pages:
       sections:
         audio_source:
           actions:
+            refresh: Refresh sources
+            start: Start Beat Sync
             start_screen_capture: Start screen capture
             stop: Stop
           description: Select an audio source to detect beats from.
+          errors:
+            list_failed: Could not list audio sources
+            start_failed: Beat Sync could not start
+          source:
+            description: Choose the system monitor or microphone Beat Sync should listen to.
+            label: Audio source
+            placeholder: Select an audio source
           title: Audio source
         beat_visualizer:
           title: Beat visualizer

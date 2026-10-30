@@ -13,15 +13,21 @@ export const useSettingsBeatSync = defineStore('settings-beat-sync', () => {
     'settings/beat-sync/spectrum-scale',
     'logarithm',
   )
+  const audioSourceId = useLocalStorageManualReset<string>(
+    'settings/beat-sync/audio-source',
+    '',
+  )
 
   function resetState() {
     parameters.reset()
     spectrumScale.reset()
+    audioSourceId.reset()
   }
 
   return {
     parameters,
     spectrumScale,
+    audioSourceId,
     resetState,
   }
 })

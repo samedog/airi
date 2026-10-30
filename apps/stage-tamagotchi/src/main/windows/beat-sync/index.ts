@@ -4,6 +4,7 @@ import { BrowserWindow } from 'electron'
 import { baseUrl, getPreloadPath, getRendererRoot, load } from '../../libs/electron/location'
 import { excludeWindowFromTaskbar } from '../shared/app-icon'
 import { protectPrivilegedWindowNavigation } from '../shared/window'
+import { setupBeatSyncAudioCapture } from './system-audio-capture'
 
 /** Creates the hidden renderer that owns the Beat Sync capture and detector. */
 export async function setupBeatSync() {
@@ -18,6 +19,8 @@ export async function setupBeatSync() {
 
   excludeWindowFromTaskbar(window)
   protectPrivilegedWindowNavigation(window)
+
+  setupBeatSyncAudioCapture(window)
 
   await load(window, baseUrl(getRendererRoot(), 'beat-sync.html'))
   initScreenCaptureForWindow(window)
