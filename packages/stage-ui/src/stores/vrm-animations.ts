@@ -4,6 +4,7 @@ import { defineInvoke } from '@moeru/eventa'
 import { createContext } from '@moeru/eventa/adapters/electron/renderer'
 import { errorMessageFrom } from '@moeru/std'
 import { isElectronWindow } from '@proj-airi/stage-shared'
+import { useLocalStorageManualReset } from '@proj-airi/stage-shared/composables'
 import {
   electronVrmAnimationImport,
   electronVrmAnimationRead,
@@ -33,7 +34,10 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
   const assets = ref<VrmAnimationAsset[]>([])
   const loading = ref(false)
   const error = ref<string>()
-  const liveBindings = ref<Record<string, VrmAnimationBindings>>({})
+  const bindingsByModel = useLocalStorageManualReset<Record<string, VrmAnimationBindings>>(
+    'settings/vrm/animation-bindings',
+    () => ({}),
+  )
   const objectUrls = new Map<string, string>()
   let context: ReturnType<typeof createContext> | undefined
   const { data: incomingBindings, post: postBindings } = useBroadcastChannel<VrmAnimationBindingBroadcast, VrmAnimationBindingBroadcast>({
@@ -42,7 +46,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
 
   watch(incomingBindings, (payload) => {
     if (payload)
-      liveBindings.value = { ...liveBindings.value, [payload.avatarModelId]: payload.animations }
+      bindingsByModel.value = { ...bindingsByModel.value, [payload.avatarModelId]: payload.animations }
   })
 
   const supported = computed(() => typeof window !== 'undefined' && isElectronWindow(window))
@@ -125,17 +129,17 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
     await defineInvoke(getContext(), electronVrmAnimationReveal)()
   }
 
-  /** Updates the stage window immediately, before the card store synchronizes. */
-  function publishBindings(avatarModelId: string, animations: VrmAnimationBindings) {
-    liveBindings.value = { ...liveBindings.value, [avatarModelId]: animations }
-    postBindings({ avatarModelId, animations })
+  /** Updates every window and persists the binding for this display model. */
+  function setBindings(modelId: string, animations: VrmAnimationBindings) {
+    bindingsByModel.value = { ...bindingsByModel.value, [modelId]: animations }
+    postBindings({ avatarModelId: modelId, animations })
   }
 
   /** Prefers the live settings window value, then the value stored on the card. */
-  function resolveBindings(avatarModelId: string | undefined, fallback: VrmAnimationBindings): VrmAnimationBindings {
-    if (!avatarModelId)
+  function resolveBindings(modelId: string | undefined, fallback: VrmAnimationBindings): VrmAnimationBindings {
+    if (!modelId)
       return fallback
-    return liveBindings.value[avatarModelId] ?? fallback
+    return bindingsByModel.value[modelId] ?? fallback
   }
 
   function reset() {
@@ -143,6 +147,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
       URL.revokeObjectURL(url)
     objectUrls.clear()
     assets.value = []
+    bindingsByModel.reset()
     error.value = undefined
   }
 
@@ -161,7 +166,7 @@ export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
     removeAnimation,
     getAnimationUrl,
     reveal,
-    publishBindings,
+    setBindings,
     resolveBindings,
     reset,
   }

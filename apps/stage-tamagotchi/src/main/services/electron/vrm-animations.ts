@@ -152,10 +152,13 @@ export function setupVrmAnimations(context: ReturnType<typeof createContext>['co
     if (GLB_MAGIC.some((value, index) => bytes[index] !== value))
       throw new Error('The selected file is not a VRMA/GLB animation.')
 
-    const id = randomUUID()
+    const name = displayNameFromFile(payload.name)
+    const assets = await readLibrary()
+    const existing = assets.find(asset => asset.name.toLowerCase() === name.toLowerCase())
+    const id = existing?.id ?? randomUUID()
     const asset: VrmAnimationAsset = {
       id,
-      name: displayNameFromFile(payload.name),
+      name,
       size: bytes.byteLength,
       importedAt: new Date().toISOString(),
     }
@@ -164,8 +167,9 @@ export function setupVrmAnimations(context: ReturnType<typeof createContext>['co
     await ensureDirectories()
     await writeFile(filePath, bytes)
     try {
-      const assets = await readLibrary()
-      await writeLibrary([...assets, asset])
+      await writeLibrary(existing
+        ? assets.map(candidate => candidate.id === id ? asset : candidate)
+        : [...assets, asset])
     }
     catch (error) {
       await rm(filePath, { force: true })

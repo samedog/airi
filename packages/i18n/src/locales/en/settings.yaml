@@ -2684,6 +2684,7 @@ vrm:
     refresh: Refresh
     none: None
     default-idle: AIRI default (bundled)
+    clear: Clear animation
     bind-error: Select a VRM Avatar Model before assigning animations.
     missing: 'Missing animation ({id})'
     empty: No animations imported yet.

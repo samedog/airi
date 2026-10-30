@@ -303,7 +303,7 @@ const storedVrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   return avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
 })
 const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
-  return vrmAnimationsStore.resolveBindings(selectedAvatarModel.value?.id, storedVrmAnimationBindings.value)
+  return vrmAnimationsStore.resolveBindings(selectedAvatarModel.value?.displayModelId, storedVrmAnimationBindings.value)
 })
 const vrmIdleAnimation = ref(animations.idleLoop.toString())
 let vrmIdleAnimationRequest = 0

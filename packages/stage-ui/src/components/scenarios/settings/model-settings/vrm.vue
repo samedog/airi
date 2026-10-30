@@ -5,7 +5,7 @@ import type { ModelSettingsRuntimeSnapshot } from './runtime'
 
 import { errorMessageFrom } from '@moeru/std'
 import { useModelStore } from '@proj-airi/stage-ui-three'
-import { Button, Callout, FieldCombobox, GhostButton, SelectTab } from '@proj-airi/ui'
+import { Button, Callout, GhostButton, SelectTab } from '@proj-airi/ui'
 import { useFileDialog } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref } from 'vue'
@@ -74,9 +74,14 @@ const effectiveVrmAvatarModel = computed(() => {
   )
 })
 
+const vrmAnimationBindingModelId = computed(() =>
+  stageModelSelected.value || effectiveVrmAvatarModel.value?.displayModelId,
+)
+
 const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   const avatarModel = effectiveVrmAvatarModel.value
-  return avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
+  const stored = avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
+  return vrmAnimationsStore.resolveBindings(vrmAnimationBindingModelId.value, stored)
 })
 
 const vrmAnimationSlots = computed<{ slot: VrmAnimationSlot, label: string }[]>(() => [
@@ -91,29 +96,30 @@ const vrmAnimationSlots = computed<{ slot: VrmAnimationSlot, label: string }[]>(
   { slot: 'curious', label: t('settings.vrm.animation.slots.curious') },
 ])
 
-const vrmAnimationOptions = computed(() => {
-  const knownIds = new Set(vrmAnimationAssets.value.map(asset => asset.id))
-  const missingIds = [...new Set(Object.values(vrmAnimationBindings.value))]
+const vrmAnimationSelectOptions = computed(() => {
+  const counts = new Map<string, number>()
+  const options = vrmAnimationAssets.value.map((asset) => {
+    const count = (counts.get(asset.name) ?? 0) + 1
+    counts.set(asset.name, count)
+    return {
+      id: asset.id,
+      label: count > 1 ? `${asset.name} (${count})` : asset.name,
+    }
+  })
+  const knownIds = new Set(options.map(option => option.id))
+  const missing = [...new Set(Object.values(vrmAnimationBindings.value))]
     .filter((id): id is string => !!id && !knownIds.has(id))
-  return [
-    { label: t('settings.vrm.animation.none'), value: '', description: '' },
-    ...vrmAnimationAssets.value.map(asset => ({
-      label: asset.name,
-      value: asset.id,
-      description: `${(asset.size / 1024).toFixed(0)} KB`,
-    })),
-    ...missingIds.map(id => ({
+    .map(id => ({
+      id,
       label: t('settings.vrm.animation.missing', { id }),
-      value: id,
-      description: '',
-    })),
-  ]
+    }))
+  return [...options, ...missing]
 })
 
-const vrmIdleAnimationOptions = computed(() => [
-  { label: t('settings.vrm.animation.default-idle'), value: '', description: '' },
-  ...vrmAnimationOptions.value.slice(1),
-])
+function onVrmAnimationSelect(slot: VrmAnimationSlot, event: Event) {
+  const select = event.target as HTMLSelectElement
+  void setVrmAnimationBinding(slot, select.value)
+}
 
 const vrmAnimationDialog = useFileDialog({ accept: '.vrma', multiple: true, reset: true })
 vrmAnimationDialog.onChange(async (files) => {
@@ -135,14 +141,8 @@ async function setVrmAnimationBinding(slot: VrmAnimationSlot, value: string | nu
   if (typeof value !== 'string')
     return
 
-  if (stageModelSelected.value) {
-    const selected = selectedAvatarModel.value
-    if (!selected || selected.type !== 'vrm' || selected.displayModelId !== stageModelSelected.value)
-      await airiCardStore.setActiveCardDefaultAvatarModel(stageModelSelected.value)
-  }
-
-  const avatarModel = selectedAvatarModel.value
-  if (!avatarModel || avatarModel.type !== 'vrm') {
+  const modelId = vrmAnimationBindingModelId.value
+  if (!modelId) {
     vrmAnimationImportError.value = t('settings.vrm.animation.bind-error')
     return
   }
@@ -153,14 +153,21 @@ async function setVrmAnimationBinding(slot: VrmAnimationSlot, value: string | nu
   else
     delete animations[slot]
 
-  const updated = await airiCardStore.updateVrmAnimationBindings(activeCardId.value, avatarModel.id, animations)
-  if (!updated) {
-    vrmAnimationImportError.value = t('settings.vrm.animation.bind-error')
-    return
+  // The shared store is the source of truth for both windows. The card copy is
+  // best effort because the Models page can show a stage VRM that the active
+  // character has not linked yet.
+  vrmAnimationsStore.setBindings(modelId, animations)
+  vrmAnimationImportError.value = undefined
+
+  if (stageModelSelected.value) {
+    const selected = selectedAvatarModel.value
+    if (!selected || selected.type !== 'vrm' || selected.displayModelId !== stageModelSelected.value)
+      await airiCardStore.setActiveCardDefaultAvatarModel(stageModelSelected.value)
   }
 
-  vrmAnimationImportError.value = undefined
-  vrmAnimationsStore.publishBindings(avatarModel.id, animations)
+  const avatarModel = selectedAvatarModel.value
+  if (avatarModel?.type === 'vrm' && avatarModel.displayModelId === modelId)
+    await airiCardStore.updateVrmAnimationBindings(activeCardId.value, avatarModel.id, animations)
 }
 
 async function openVrmAnimationFolder() {
@@ -263,13 +270,49 @@ const envOptions = computed(() => [
           :key="slot.slot"
           :class="['flex', 'flex-col', 'gap-1']"
         >
-          <FieldCombobox
-            :label="slot.label"
-            :model-value="vrmAnimationBindings[slot.slot] ?? ''"
-            :options="slot.slot === 'idle' ? vrmIdleAnimationOptions : vrmAnimationOptions"
-            layout="vertical"
-            @update:model-value="value => setVrmAnimationBinding(slot.slot, value)"
-          />
+          <div :class="['flex', 'items-center', 'gap-1']">
+            <span :class="['text-sm', 'font-medium']">{{ slot.label }}</span>
+            <button
+              v-if="vrmAnimationBindings[slot.slot]"
+              type="button"
+              :title="t('settings.vrm.animation.clear')"
+              :aria-label="t('settings.vrm.animation.clear')"
+              :class="['ml-1', 'text-xs', 'text-primary-500', 'underline']"
+              @click.stop.prevent="setVrmAnimationBinding(slot.slot, '')"
+            >
+              {{ t('settings.vrm.animation.clear') }}
+            </button>
+          </div>
+          <select
+            :value="vrmAnimationBindings[slot.slot] ?? ''"
+            :class="[
+              'h-9',
+              'w-full',
+              'rounded-xl',
+              'border-2',
+              'border-neutral-200',
+              'bg-white',
+              'px-3',
+              'text-sm',
+              'text-neutral-700',
+              'outline-none',
+              'dark:border-neutral-800',
+              'dark:bg-neutral-900',
+              'dark:text-neutral-200',
+            ]"
+            @change="onVrmAnimationSelect(slot.slot, $event)"
+          >
+            <option value="">
+              {{ slot.slot === 'idle' ? t('settings.vrm.animation.default-idle') : t('settings.vrm.animation.none') }}
+            </option>
+            <option
+              v-for="option in vrmAnimationSelectOptions"
+              :key="option.id"
+              :value="option.id"
+            >
+              {{ option.label }}
+            </option>
+          </select>
         </div>
       </div>
     </template>
