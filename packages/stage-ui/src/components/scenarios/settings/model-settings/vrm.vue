@@ -12,6 +12,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAiriCardStore } from '../../../../stores/modules/airi-card'
+import { useSettings } from '../../../../stores/settings'
 import { useVrmAnimationsStore } from '../../../../stores/vrm-animations'
 import { Container, PropertyColor, PropertyNumber, PropertyPoint } from '../../../data-pane'
 import { ColorPalette } from '../../../widgets'
@@ -57,13 +58,24 @@ const {
 const controlsLocked = computed(() => props.runtimeSnapshot.controlsLocked)
 
 const airiCardStore = useAiriCardStore()
+const settingsStore = useSettings()
 const vrmAnimationsStore = useVrmAnimationsStore()
-const { activeCardId, selectedAvatarModel } = storeToRefs(airiCardStore)
+const { activeCard, activeCardId, selectedAvatarModel } = storeToRefs(airiCardStore)
+const { stageModelSelected } = storeToRefs(settingsStore)
 const { assets: vrmAnimationAssets, error: vrmAnimationError, loading: vrmAnimationLoading, supported: vrmAnimationsSupported } = storeToRefs(vrmAnimationsStore)
 const vrmAnimationImportError = ref<string>()
 
+const effectiveVrmAvatarModel = computed(() => {
+  const selected = selectedAvatarModel.value
+  if (selected?.type === 'vrm')
+    return selected
+  return activeCard.value?.extensions.airi.avatarModels.find(model =>
+    model.type === 'vrm' && model.displayModelId === stageModelSelected.value,
+  )
+})
+
 const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
-  const avatarModel = selectedAvatarModel.value
+  const avatarModel = effectiveVrmAvatarModel.value
   return avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
 })
 
@@ -122,9 +134,18 @@ vrmAnimationDialog.onChange(async (files) => {
 async function setVrmAnimationBinding(slot: VrmAnimationSlot, value: string | number | undefined) {
   if (typeof value !== 'string')
     return
+
+  if (stageModelSelected.value) {
+    const selected = selectedAvatarModel.value
+    if (!selected || selected.type !== 'vrm' || selected.displayModelId !== stageModelSelected.value)
+      await airiCardStore.setActiveCardDefaultAvatarModel(stageModelSelected.value)
+  }
+
   const avatarModel = selectedAvatarModel.value
-  if (!avatarModel || avatarModel.type !== 'vrm')
+  if (!avatarModel || avatarModel.type !== 'vrm') {
+    vrmAnimationImportError.value = t('settings.vrm.animation.bind-error')
     return
+  }
 
   const animations = { ...vrmAnimationBindings.value }
   if (value)
@@ -133,8 +154,13 @@ async function setVrmAnimationBinding(slot: VrmAnimationSlot, value: string | nu
     delete animations[slot]
 
   const updated = await airiCardStore.updateVrmAnimationBindings(activeCardId.value, avatarModel.id, animations)
-  if (updated)
-    vrmAnimationsStore.publishBindings(avatarModel.id, animations)
+  if (!updated) {
+    vrmAnimationImportError.value = t('settings.vrm.animation.bind-error')
+    return
+  }
+
+  vrmAnimationImportError.value = undefined
+  vrmAnimationsStore.publishBindings(avatarModel.id, animations)
 }
 
 async function openVrmAnimationFolder() {
