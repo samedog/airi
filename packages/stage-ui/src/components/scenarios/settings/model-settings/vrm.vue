@@ -86,6 +86,7 @@ const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
 
 const vrmAnimationSlots = computed<{ slot: VrmAnimationSlot, label: string }[]>(() => [
   { slot: 'idle', label: t('settings.vrm.animation.slots.idle') },
+  { slot: 'dance', label: t('settings.vrm.animation.slots.dance') },
   { slot: 'happy', label: t('settings.vrm.animation.slots.happy') },
   { slot: 'sad', label: t('settings.vrm.animation.slots.sad') },
   { slot: 'angry', label: t('settings.vrm.animation.slots.angry') },

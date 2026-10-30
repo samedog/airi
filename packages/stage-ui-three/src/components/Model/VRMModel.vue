@@ -125,6 +125,8 @@ const props = withDefaults(defineProps<{
   modelId: string
   modelSrc?: string
   idleAnimation: string
+  /** Playback rate of the looping idle clip. */
+  idleAnimationSpeed?: number
   // loadAnimations?: string[]
   paused?: boolean
 
@@ -141,6 +143,7 @@ const props = withDefaults(defineProps<{
 
   camera: PerspectiveCamera
 }>(), {
+  idleAnimationSpeed: 1,
   paused: false,
 })
 /*
@@ -166,6 +169,7 @@ const {
   modelId,
   modelSrc,
   idleAnimation,
+  idleAnimationSpeed,
   // loadAnimations, // TBC
   paused,
 
@@ -291,7 +295,7 @@ async function replaceIdleAnimation(url: string) {
   reAnchorRootPositionTrack(clip, vrmAtStart)
   const previous = getIdleAction(mixer)
   const action = mixer.clipAction(clip)
-  action.reset().setEffectiveWeight(1).play()
+  action.reset().setEffectiveTimeScale(idleAnimationSpeed.value).setEffectiveWeight(1).play()
 
   const fadeSeconds = 0.35
   const current = currentGestureAction.value?.isRunning() ? currentGestureAction.value : previous
@@ -308,6 +312,10 @@ async function replaceIdleAnimation(url: string) {
 watch(idleAnimation, (url) => {
   if (url)
     void replaceIdleAnimation(url)
+}, { flush: 'post' })
+
+watch(idleAnimationSpeed, (speed) => {
+  getIdleAction(vrmAnimationMixer.value)?.setEffectiveTimeScale(speed)
 }, { flush: 'post' })
 
 const vrmHooks: readonly VrmHook[] = resolveInternalVrmHooks()
@@ -461,6 +469,7 @@ function applyManagedVrmInstance(instance: ManagedVrmInstance) {
   vrmEmote.value = instance.emote
   interactionColliders.value = instance.interactionColliders
   ensureIdlePlaying(instance.mixer)
+  getIdleAction(instance.mixer)?.setEffectiveTimeScale(idleAnimationSpeed.value)
 }
 
 function destroyManagedVrmInstance(instance?: ManagedVrmInstance) {
@@ -962,6 +971,7 @@ async function loadModel() {
     // play animation
     nextVrmAnimationMixer = new AnimationMixer(_vrm.scene)
     const idleAction = nextVrmAnimationMixer.clipAction(clip)
+    idleAction.setEffectiveTimeScale(idleAnimationSpeed.value)
     idleAction.play()
     setIdleAction(nextVrmAnimationMixer, idleAction)
     setIdleAnimationUrl(nextVrmAnimationMixer, idleAnimation.value)

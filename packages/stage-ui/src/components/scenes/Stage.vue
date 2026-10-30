@@ -15,6 +15,7 @@ import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import { normalizeActPayload, Playback } from '@proj-airi/pipelines-audio'
 import { presenceBubbleIdle, presenceBubbleThinking } from '@proj-airi/stage-shared'
+import { getBeatSyncState, listenBeatSyncBeatSignal, listenBeatSyncStateChange } from '@proj-airi/stage-shared/beat-sync'
 import { createLive2D, defaultLive2DMotionControlDynamics, Live2DScene, useLive2DMotionControl, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { MMDScene } from '@proj-airi/stage-ui-mmd'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
@@ -28,11 +29,12 @@ import { useBroadcastChannel, useEventListener } from '@vueuse/core'
 // import embedWorkerURL from '@xsai-transformers/embed/worker?worker&url'
 // import { embed } from '@xsai/embed'
 import { storeToRefs } from 'pinia'
-import { computed, nextTick, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 
 import StageAvatarModelMissing from './stage-avatar-model-missing.vue'
 import StageRenderError from './stage-render-error.vue'
 
+import { beatSyncDanceSpeed, bpmFromBeatInterval } from '../../constants/beat-sync-dance'
 // import { useDuckDb } from '../../composables/use-duck-db'
 import { Emotion, EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
 import { live2dMotionMagicProfiles, useLive2DMotionMagic, useLive2DMotionMagicSettings } from '../../features/motions/live2d'
@@ -306,32 +308,80 @@ const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   return vrmAnimationsStore.resolveBindings(selectedAvatarModel.value?.displayModelId, storedVrmAnimationBindings.value)
 })
 const vrmIdleAnimation = ref(animations.idleLoop.toString())
-let vrmIdleAnimationRequest = 0
+const vrmDanceAnimation = ref<string>()
+const beatSyncActive = ref(false)
+const beatSyncBpm = ref(0)
+let vrmBaseAnimationRequest = 0
+let disposeBeatSyncState: (() => void) | undefined
+let disposeBeatSyncBeat: (() => void) | undefined
 
-async function refreshVrmIdleAnimation() {
-  const request = ++vrmIdleAnimationRequest
-  const id = vrmAnimationBindings.value.idle
-  if (!id) {
-    vrmIdleAnimation.value = animations.idleLoop.toString()
-    return
-  }
+const vrmBaseAnimation = computed(() => {
+  if (beatSyncActive.value && vrmDanceAnimation.value)
+    return vrmDanceAnimation.value
+  return vrmIdleAnimation.value
+})
+const vrmBaseAnimationSpeed = computed(() => {
+  if (beatSyncActive.value && vrmDanceAnimation.value)
+    return beatSyncDanceSpeed(beatSyncBpm.value, true)
+  return 1
+})
 
-  const url = await vrmAnimationsStore.getAnimationUrl(id)
-  if (request !== vrmIdleAnimationRequest)
+async function refreshVrmBaseAnimations() {
+  const request = ++vrmBaseAnimationRequest
+  const idleId = vrmAnimationBindings.value.idle
+  const danceId = vrmAnimationBindings.value.dance
+  const [idleUrl, danceUrl] = await Promise.all([
+    idleId ? vrmAnimationsStore.getAnimationUrl(idleId) : undefined,
+    danceId ? vrmAnimationsStore.getAnimationUrl(danceId) : undefined,
+  ])
+  if (request !== vrmBaseAnimationRequest)
     return
-  if (!url) {
+
+  if (idleId && !idleUrl)
     console.warn('[VRM] animation for "idle" not found')
-    vrmIdleAnimation.value = animations.idleLoop.toString()
-    return
-  }
-  vrmIdleAnimation.value = url
+  if (danceId && !danceUrl)
+    console.warn('[VRM] animation for "dance" not found')
+
+  vrmIdleAnimation.value = idleUrl ?? animations.idleLoop.toString()
+  vrmDanceAnimation.value = danceUrl
 }
 
 watch(
-  [() => selectedAvatarModel.value?.id, () => vrmAnimationBindings.value.idle],
-  refreshVrmIdleAnimation,
+  [
+    () => selectedAvatarModel.value?.displayModelId,
+    () => vrmAnimationBindings.value.idle,
+    () => vrmAnimationBindings.value.dance,
+  ],
+  refreshVrmBaseAnimations,
   { immediate: true },
 )
+
+async function connectBeatSync() {
+  try {
+    const state = await getBeatSyncState()
+    beatSyncActive.value = state.isActive
+    disposeBeatSyncState = listenBeatSyncStateChange((next) => {
+      beatSyncActive.value = next.isActive
+      if (!next.isActive)
+        beatSyncBpm.value = 0
+    })
+    disposeBeatSyncBeat = listenBeatSyncBeatSignal(({ interval }) => {
+      const bpm = bpmFromBeatInterval(interval)
+      if (!bpm)
+        return
+      beatSyncBpm.value = beatSyncBpm.value > 0
+        ? beatSyncBpm.value * 0.75 + bpm * 0.25
+        : bpm
+    })
+  }
+  catch (error) {
+    console.warn('[Stage] Beat Sync is unavailable', error)
+  }
+}
+
+onMounted(() => {
+  void connectBeatSync()
+})
 
 function vrmAnimationSlotForEmotion(name: Emotion): VrmAnimationSlot | undefined {
   if (name === Emotion.Neutral)
@@ -929,6 +979,8 @@ onUnmounted(() => {
   resetLive2dLipSync()
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())
+  disposeBeatSyncState?.()
+  disposeBeatSyncBeat?.()
   disconnectVoiceOutput()
   releaseSpeechPlayerRole()
   speechAnalysis.disconnect()
@@ -1002,7 +1054,8 @@ defineExpose({
         :model-id="stageModelSelected"
         :model-src="stageModelSelectedUrl"
         :cursor-position="cursorPosition"
-        :idle-animation="vrmIdleAnimation"
+        :idle-animation="vrmBaseAnimation"
+        :idle-animation-speed="vrmBaseAnimationSpeed"
         :paused="paused"
         :show-axes="stageViewControlsEnabled"
         :enable-orbit-controls="props.enableOrbitControls"

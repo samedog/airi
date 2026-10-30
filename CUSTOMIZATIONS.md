@@ -56,6 +56,9 @@ react to the game.
   folder, and binding an animation to each supported emotion or to the looping idle.
 - User animations live under `app.getPath('userData')/vrm-animations` and never enter the source
   tree or release artifacts.
+- Added a Dance slot. While Beat Sync is active, a configured dance clip becomes the looping base
+  animation, and its playback rate follows the detected BPM around a 120 BPM reference. Without a
+  dance clip, the normal idle animation remains active.
 - Imported animation names are added to the VRM system prompt as an ACT motion library. The agent
   can emit `<|ACT {"emotion":"angry","motion":"Standing Arguing"}|>` and the stage resolves the
   motion name to the local file.

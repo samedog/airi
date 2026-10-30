@@ -2677,7 +2677,7 @@ voices: Voice
 vrm:
   animation:
     title: VRM Animations
-    description: Import .vrma files and assign one to each emotion or to the looping idle. Idle defaults to the bundled AIRI animation. Animations stay on this device and are not uploaded.
+    description: Import .vrma files and assign one to each emotion or to the looping idle. Idle defaults to the bundled AIRI animation. Dance is used while Beat Sync is active, and its speed follows the detected BPM. Animations stay on this device and are not uploaded.
     desktop-only: VRM animation imports are available in the desktop app.
     import: Import .vrma
     open-folder: Open animations folder
@@ -2690,6 +2690,7 @@ vrm:
     empty: No animations imported yet.
     slots:
       idle: Idle / Neutral
+      dance: Dance (Beat Sync)
       happy: Happy
       sad: Sad
       angry: Angry

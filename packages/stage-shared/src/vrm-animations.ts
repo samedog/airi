@@ -3,6 +3,7 @@ import { defineInvokeEventa } from '@moeru/eventa'
 /** Animation slots that one VRM avatar can bind to an imported `.vrma` file. */
 export const vrmAnimationSlots = [
   'idle',
+  'dance',
   'happy',
   'sad',
   'angry',

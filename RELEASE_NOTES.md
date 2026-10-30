@@ -13,7 +13,8 @@ Linux/Wayland-focused fork of Project AIRI, based on upstream `main` at `v0.13.1
   are user-local and are not distributed with this release. Import `.vrma` files in Models > VRM
   Animations and bind them to each emotion or the looping idle. Imported names are exposed to the
   agent as ACT motions, explicit ACT motion wins over emotion-bound body clips, and body clips no
-  longer drive facial or look-at tracks.
+  longer drive facial or look-at tracks. A Dance slot becomes the looping animation while Beat Sync
+  is active, with playback speed scaled from the detected BPM.
 - Closing the Stage window now hides AIRI to the tray instead of quitting the process.
 - Shortcut defaults changed to `Ctrl+Alt+Shift+A` for Spotlight and `Ctrl+Alt+Shift+Space` for
   Push to Talk. Existing PTT settings migrate once from the old default.

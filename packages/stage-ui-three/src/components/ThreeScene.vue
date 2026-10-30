@@ -92,12 +92,14 @@ const props = withDefaults(defineProps<{
   enableOrbitControls?: boolean
   showAxes?: boolean
   idleAnimation?: string
+  idleAnimationSpeed?: number
   paused?: boolean
 }>(), {
   presence: () => presenceBubbleIdle,
   enableOrbitControls: true,
   showAxes: false,
   idleAnimation: new URL('../assets/vrm/animations/idle_loop.vrma', import.meta.url).href,
+  idleAnimationSpeed: 1,
   paused: false,
 })
 
@@ -1093,6 +1095,7 @@ defineExpose({
         :model-id="requestedModelIdentity?.modelId ?? props.modelId"
         :model-src="requestedModelIdentity?.modelSrc"
         :idle-animation="props.idleAnimation"
+        :idle-animation-speed="props.idleAnimationSpeed"
         :paused="props.paused"
         :env-select="envSelect"
         :sky-box-intensity="skyBoxIntensity"
