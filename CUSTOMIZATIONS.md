@@ -8,16 +8,19 @@ artifacts, not the source of truth.
 
 - Fork remote: `origin` → `https://github.com/samedog/airi.git`
 - Upstream remote: `upstream` → `https://github.com/moeru-ai/airi`
-- Base commit for the custom line: `335f6cac7`
-- Upstream line at that base: `v0.13.1` plus three upstream commits
+- Original custom line base: `335f6cac7` (`v0.13.1` plus three upstream commits)
 - Current custom branch: `main`
 - Electron: upstream `43.8.4`
 - Upstream sync branch: `code-rebase/upstream-main-2026-11-01`
 - Upstream merge target: `upstream/main` at `7ab1ecae4` (2026-11-01)
+- Current patch baseline: `upstream/main` at `7ab1ecae4`
+- Current patch artifact: `patches/airi-custom-upstream-main.patch`
 
-The `v0.13.1` tag is a version reference only. It is not the base branch. The previous custom
-tree is preserved on `custom/wf-airi-v0.12`. Upstream is merged deliberately on a sync branch;
-`main` remains the published fork branch until that sync branch is reviewed and accepted.
+The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases;
+`v0.14.1` was already 31 commits behind `upstream/main` when the current patch was generated.
+The previous custom tree is preserved on `custom/wf-airi-v0.12`. Upstream is merged deliberately
+on a sync branch; `main` remains the published fork branch until that sync branch is reviewed and
+accepted.
 
 ## Fork highlights
 
