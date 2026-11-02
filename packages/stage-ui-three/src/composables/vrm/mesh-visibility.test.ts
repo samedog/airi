@@ -4,6 +4,7 @@ import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial 
 import { describe, expect, it } from 'vitest'
 
 import {
+  applyVrmMeshCategoryOverrides,
   applyVrmMeshNodeVisibility,
   getVrmMeshCategory,
   getVrmMeshNodes,
@@ -104,6 +105,19 @@ describe('vrm mesh visibility', () => {
     expect(getVrmMeshCategory('U_Eyes_1001', ['U_EyeColor_1001'])).toBe('body')
     expect(getVrmMeshCategory('QuantumHacker_Suit001', ['QuantumHacker_Suit001'])).toBe('outfit')
     expect(getVrmMeshCategory('QuantumHacker_Suitjacket', ['QuantumHacker_Suit001'])).toBe('outfit')
+  })
+
+  it('applies manual category overrides without changing visibility', () => {
+    const nodes = getVrmMeshNodes(createVrm())
+    const overridden = applyVrmMeshCategoryOverrides(nodes, {
+      'Extra': 'extras',
+      'U_Accessories_2.001': 'body',
+    })
+
+    expect(overridden.find(node => node.id === 'Extra')?.category).toBe('extras')
+    expect(overridden.find(node => node.id === 'U_Accessories_2.001')?.category).toBe('body')
+    expect(overridden.find(node => node.id === 'BaseMesh_BODY.001')?.category).toBe('body')
+    expect(overridden.every(node => node.visible)).toBe(true)
   })
 
   it('ignores invisible interaction raycaster colliders', () => {

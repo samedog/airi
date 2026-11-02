@@ -4,7 +4,7 @@ import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
 import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
-import type { VrmInteractionTarget, VrmMeshNode } from '@proj-airi/stage-ui-three'
+import type { VrmInteractionTarget, VrmMeshCategory, VrmMeshNode } from '@proj-airi/stage-ui-three'
 
 import type { EmotionPayload } from '../../constants/emotions'
 
@@ -21,7 +21,7 @@ import { createLive2D, Live2DScene, useLive2dParams, useSettingsLive2d } from '@
 import { MMDScene } from '@proj-airi/stage-ui-mmd'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
 import { TachieScene } from '@proj-airi/stage-ui-tachie'
-import { ThreeScene } from '@proj-airi/stage-ui-three'
+import { applyVrmMeshCategoryOverrides, ThreeScene } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
 import { createQueue } from '@proj-airi/stream-kit'
 import { Callout } from '@proj-airi/ui'
@@ -323,8 +323,13 @@ const vrmMeshVisibilityByModel = useLocalStorage<Record<string, Record<string, b
   'settings/vrm/mesh-visibility',
   {},
 )
-const vrmMeshVisibilityModelKey = computed(() => stageModelSelected.value || 'default')
-const currentVrmMeshVisibility = computed(() => vrmMeshVisibilityByModel.value[vrmMeshVisibilityModelKey.value] ?? {})
+const vrmMeshCategoryByModel = useLocalStorage<Record<string, Record<string, VrmMeshCategory>>>(
+  'settings/vrm/mesh-categories',
+  {},
+)
+const vrmMeshModelKey = computed(() => stageModelSelected.value || 'default')
+const currentVrmMeshVisibility = computed(() => vrmMeshVisibilityByModel.value[vrmMeshModelKey.value] ?? {})
+const currentVrmMeshCategories = computed(() => vrmMeshCategoryByModel.value[vrmMeshModelKey.value] ?? {})
 
 watch([stageModelRenderer, stageModelSelected, stageModelSelectedUrl], () => {
   vrmMeshMenuOpen.value = false
@@ -374,7 +379,8 @@ function pickVrmSlotAssetId(slot: VrmAnimationSlot) {
 }
 
 function refreshVrmMeshNodes() {
-  vrmMeshNodes.value = vrmViewerRef.value?.meshNodes() ?? []
+  const nodes = vrmViewerRef.value?.meshNodes() ?? []
+  vrmMeshNodes.value = applyVrmMeshCategoryOverrides(nodes, currentVrmMeshCategories.value)
 }
 
 function applySavedVrmMeshVisibility() {
@@ -383,7 +389,7 @@ function applySavedVrmMeshVisibility() {
 }
 
 function saveVrmMeshVisibility(nodeId: string, visible: boolean) {
-  const modelKey = vrmMeshVisibilityModelKey.value
+  const modelKey = vrmMeshModelKey.value
   const modelVisibility = {
     ...(vrmMeshVisibilityByModel.value[modelKey] ?? {}),
     [nodeId]: visible,
@@ -434,8 +440,25 @@ function resetVrmMeshVisibility() {
   vrmViewerRef.value?.resetMeshNodeVisibility()
   refreshVrmMeshNodes()
   const next = { ...vrmMeshVisibilityByModel.value }
-  delete next[vrmMeshVisibilityModelKey.value]
+  delete next[vrmMeshModelKey.value]
   vrmMeshVisibilityByModel.value = next
+}
+
+function recategorizeVrmMeshNode(node: VrmMeshNode, category: VrmMeshCategory | null) {
+  const modelKey = vrmMeshModelKey.value
+  const nextCategories = { ...(vrmMeshCategoryByModel.value[modelKey] ?? {}) }
+  if (category)
+    nextCategories[node.id] = category
+  else
+    delete nextCategories[node.id]
+
+  const nextByModel = { ...vrmMeshCategoryByModel.value }
+  if (Object.keys(nextCategories).length > 0)
+    nextByModel[modelKey] = nextCategories
+  else
+    delete nextByModel[modelKey]
+  vrmMeshCategoryByModel.value = nextByModel
+  refreshVrmMeshNodes()
 }
 
 function danceTierEnergy(energy: number) {
@@ -1502,6 +1525,7 @@ defineExpose({
       @close="vrmMeshMenuOpen = false"
       @toggle="toggleVrmMeshNode"
       @reset="resetVrmMeshVisibility"
+      @recategorize="recategorizeVrmMeshNode"
     />
   </div>
 </template>

@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'toggle', node: VrmMeshNode): void
   (e: 'reset'): void
+  (e: 'recategorize', node: VrmMeshNode, category: VrmMeshCategory | null): void
 }>()
 
 const { t } = useI18n()
@@ -38,6 +39,8 @@ const CATEGORY_META: readonly CategoryMeta[] = [
 ]
 
 const activeCategory = ref<VrmMeshCategory>()
+const moveMode = ref(false)
+const recategorizingNode = ref<VrmMeshNode>()
 const categoryGroups = computed<CategoryGroup[]>(() => CATEGORY_META.map(meta => ({
   ...meta,
   label: t(`settings.vrm.model-parts.categories.${meta.id}`),
@@ -45,11 +48,14 @@ const categoryGroups = computed<CategoryGroup[]>(() => CATEGORY_META.map(meta =>
 })))
 const activeGroup = computed(() => categoryGroups.value.find(group => group.id === activeCategory.value))
 const displayedNodes = computed(() => activeGroup.value?.nodes ?? [])
-const displayedCount = computed(() => activeCategory.value ? displayedNodes.value.length : categoryGroups.value.length)
+const categoryPickerOpen = computed(() => recategorizingNode.value !== undefined)
+const displayedCount = computed(() => activeCategory.value && !categoryPickerOpen.value
+  ? displayedNodes.value.length
+  : categoryGroups.value.length)
 
 const { width, height } = useWindowSize()
 const itemRadius = computed(() => {
-  if (!activeCategory.value)
+  if (!activeCategory.value || categoryPickerOpen.value)
     return 112
   const count = Math.max(displayedNodes.value.length, 1)
   return Math.min(190, Math.max(136, 96 + count * 6))
@@ -59,14 +65,30 @@ const center = computed(() => ({
   x: Math.min(Math.max(props.x, safeInset.value), Math.max(safeInset.value, width.value - safeInset.value)),
   y: Math.min(Math.max(props.y, safeInset.value), Math.max(safeInset.value, height.value - safeInset.value)),
 }))
-const title = computed(() => activeGroup.value?.label ?? t('settings.vrm.model-parts.title'))
-const subtitle = computed(() => activeCategory.value
-  ? t('settings.vrm.model-parts.choose-part')
-  : t('settings.vrm.model-parts.choose-category'))
+const title = computed(() => {
+  if (recategorizingNode.value) {
+    return t('settings.vrm.model-parts.move-title', {
+      name: meshLabel(recategorizingNode.value.name),
+    })
+  }
+  return activeGroup.value?.label ?? t('settings.vrm.model-parts.title')
+})
+const subtitle = computed(() => {
+  if (categoryPickerOpen.value)
+    return t('settings.vrm.model-parts.move-hint')
+  if (!activeCategory.value)
+    return t('settings.vrm.model-parts.choose-category')
+  return moveMode.value
+    ? t('settings.vrm.model-parts.choose-part-to-move')
+    : t('settings.vrm.model-parts.choose-part')
+})
 
 watch(() => props.open, (open) => {
-  if (open)
+  if (open) {
     activeCategory.value = undefined
+    moveMode.value = false
+    recategorizingNode.value = undefined
+  }
 }, { immediate: true })
 
 function itemStyle(index: number) {
@@ -84,8 +106,53 @@ function selectCategory(group: CategoryGroup) {
     activeCategory.value = group.id
 }
 
+function beginMove(node: VrmMeshNode) {
+  moveMode.value = true
+  recategorizingNode.value = node
+}
+
+function categoryButtonClass(group: CategoryGroup) {
+  if (categoryPickerOpen.value) {
+    return group.id === recategorizingNode.value?.category
+      ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-primary-900/10 ring-2 ring-primary-400/60 dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-100'
+      : 'border-primary-300/80 bg-white/95 text-neutral-700 shadow-primary-900/10 dark:border-primary-500/70 dark:bg-neutral-800/95 dark:text-neutral-100 hover:bg-white dark:hover:bg-neutral-800'
+  }
+  if (group.nodes.length === 0) {
+    return 'cursor-not-allowed border-neutral-300/50 bg-neutral-200/70 text-neutral-400 opacity-60 dark:border-neutral-700/60 dark:bg-neutral-900/70 dark:text-neutral-500'
+  }
+  return 'border-primary-300/80 bg-white/95 text-neutral-700 shadow-primary-900/10 dark:border-primary-500/70 dark:bg-neutral-800/95 dark:text-neutral-100 hover:bg-white dark:hover:bg-neutral-800'
+}
+
+function chooseCategory(category: VrmMeshCategory) {
+  const node = recategorizingNode.value
+  if (!node)
+    return
+
+  emit('recategorize', node, category)
+  recategorizingNode.value = undefined
+  moveMode.value = false
+  activeCategory.value = undefined
+}
+
+function useAutoCategory() {
+  const node = recategorizingNode.value
+  if (!node)
+    return
+
+  emit('recategorize', node, null)
+  recategorizingNode.value = undefined
+  moveMode.value = false
+  activeCategory.value = undefined
+}
+
+function cancelRecategorize() {
+  recategorizingNode.value = undefined
+}
+
 function back() {
   activeCategory.value = undefined
+  moveMode.value = false
+  recategorizingNode.value = undefined
 }
 
 function meshLabel(name: string) {
@@ -99,7 +166,9 @@ function onKeydown(event: KeyboardEvent) {
   if (!props.open || event.key !== 'Escape')
     return
   event.preventDefault()
-  if (activeCategory.value)
+  if (recategorizingNode.value)
+    cancelRecategorize()
+  else if (activeCategory.value)
     back()
   else
     emit('close')
@@ -139,15 +208,42 @@ useEventListener(window, 'keydown', onKeydown)
 
       <div class="absolute right-4 top-4 z-10 flex items-center gap-2">
         <button
-          v-if="activeCategory"
+          v-if="recategorizingNode"
           type="button"
-          class="size-9 flex items-center justify-center rounded-full bg-white/90 text-neutral-600 shadow-lg dark:bg-neutral-800/90 hover:bg-white dark:text-neutral-300"
-          :title="t('settings.vrm.model-parts.reset-all')"
-          :aria-label="t('settings.vrm.model-parts.reset-all')"
-          @click.stop="emit('reset')"
+          class="h-9 flex items-center gap-1 rounded-full bg-white/90 px-2.5 text-[10px] text-neutral-600 font-semibold shadow-lg dark:bg-neutral-800/90 hover:bg-white dark:text-neutral-300"
+          :title="t('settings.vrm.model-parts.auto')"
+          :aria-label="t('settings.vrm.model-parts.auto')"
+          @click.stop="useAutoCategory"
         >
-          <span class="i-solar:refresh-bold-duotone text-base" aria-hidden="true" />
+          <span class="i-solar:refresh-bold-duotone text-sm" aria-hidden="true" />
+          {{ t('settings.vrm.model-parts.auto') }}
         </button>
+        <template v-else-if="activeCategory">
+          <button
+            type="button"
+            class="h-9 flex items-center gap-1 rounded-full px-2.5 text-[10px] font-medium shadow-lg transition"
+            :class="moveMode
+              ? 'bg-primary-500 text-white'
+              : 'bg-white/90 text-neutral-600 dark:bg-neutral-800/90 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-800'"
+            :title="t('settings.vrm.model-parts.move')"
+            :aria-label="t('settings.vrm.model-parts.move')"
+            :aria-pressed="moveMode"
+            @click.stop="moveMode = !moveMode"
+          >
+            <span class="i-solar:tag-bold-duotone text-sm" aria-hidden="true" />
+            {{ moveMode ? t('settings.vrm.model-parts.moving') : t('settings.vrm.model-parts.move') }}
+          </button>
+          <button
+            v-if="!moveMode"
+            type="button"
+            class="size-9 flex items-center justify-center rounded-full bg-white/90 text-neutral-600 shadow-lg dark:bg-neutral-800/90 hover:bg-white dark:text-neutral-300"
+            :title="t('settings.vrm.model-parts.reset-all')"
+            :aria-label="t('settings.vrm.model-parts.reset-all')"
+            @click.stop="emit('reset')"
+          >
+            <span class="i-solar:refresh-bold-duotone text-base" aria-hidden="true" />
+          </button>
+        </template>
         <button
           type="button"
           class="size-8 flex items-center justify-center rounded-full bg-white/90 text-lg text-neutral-600 shadow-lg dark:bg-neutral-800/90 hover:bg-white dark:text-neutral-300"
@@ -176,33 +272,42 @@ useEventListener(window, 'keydown', onKeydown)
         <button
           type="button"
           class="absolute left-1/2 top-1/2 size-16 flex flex-col items-center justify-center gap-0.5 border-2 border-white/70 rounded-full bg-white/90 px-2 text-center text-[10px] text-neutral-700 font-semibold leading-tight shadow-xl -translate-x-1/2 -translate-y-1/2 dark:border-neutral-600 dark:bg-neutral-800/95 hover:bg-white dark:text-neutral-200"
-          @click.stop="activeCategory ? back() : emit('reset')"
+          @click.stop="recategorizingNode ? cancelRecategorize() : activeCategory ? back() : emit('reset')"
         >
           <span
-            v-if="activeCategory"
+            v-if="activeCategory && !recategorizingNode"
             class="i-solar:alt-arrow-left-bold-duotone text-base"
             aria-hidden="true"
           />
-          {{ activeCategory ? t('settings.vrm.model-parts.back') : t('settings.vrm.model-parts.reset') }}
+          {{ recategorizingNode
+            ? t('settings.vrm.model-parts.cancel')
+            : activeCategory
+              ? t('settings.vrm.model-parts.back')
+              : t('settings.vrm.model-parts.reset') }}
         </button>
 
-        <template v-if="!activeCategory">
+        <template v-if="!activeCategory || recategorizingNode">
           <button
             v-for="(group, index) in categoryGroups"
             :key="group.id"
             type="button"
             :style="itemStyle(index)"
-            :disabled="group.nodes.length === 0"
-            :title="group.nodes.length === 0 ? t('settings.vrm.model-parts.empty-category') : group.label"
+            :disabled="!recategorizingNode && group.nodes.length === 0"
+            :title="recategorizingNode || group.nodes.length > 0 ? group.label : t('settings.vrm.model-parts.empty-category')"
             class="absolute w-28 flex items-center gap-1.5 border-2 rounded-2xl px-2 py-2 text-left text-[10px] font-medium shadow-lg transition"
-            :class="group.nodes.length === 0
-              ? 'cursor-not-allowed border-neutral-300/50 bg-neutral-200/70 text-neutral-400 opacity-60 dark:border-neutral-700/60 dark:bg-neutral-900/70 dark:text-neutral-500'
-              : 'border-primary-300/80 bg-white/95 text-neutral-700 shadow-primary-900/10 dark:border-primary-500/70 dark:bg-neutral-800/95 dark:text-neutral-100 hover:bg-white dark:hover:bg-neutral-800'"
-            @click.stop="selectCategory(group)"
+            :class="categoryButtonClass(group)"
+            @click.stop="recategorizingNode ? chooseCategory(group.id) : selectCategory(group)"
           >
             <span :class="group.icon" class="shrink-0 text-base" aria-hidden="true" />
             <span class="min-w-0 flex-1 truncate">{{ group.label }}</span>
             <span
+              v-if="recategorizingNode && group.id === recategorizingNode.category"
+              class="absolute size-4 flex items-center justify-center border border-white/70 rounded-full bg-primary-500 text-white -right-1.5 -top-1.5 dark:border-neutral-800"
+            >
+              <span class="i-solar:check-circle-bold text-[9px]" aria-hidden="true" />
+            </span>
+            <span
+              v-else
               class="absolute h-4 min-w-4 flex items-center justify-center border border-white/70 rounded-full px-1 text-[9px] text-white font-bold -right-1.5 -top-1.5 dark:border-neutral-800"
               :class="group.nodes.length === 0 ? 'bg-neutral-400 dark:bg-neutral-600' : 'bg-primary-500'"
             >
@@ -217,18 +322,21 @@ useEventListener(window, 'keydown', onKeydown)
             :key="node.id"
             type="button"
             :style="itemStyle(index)"
-            :title="node.name"
-            :aria-pressed="node.visible"
+            :title="moveMode ? t('settings.vrm.model-parts.move-title', { name: meshLabel(node.name) }) : node.name"
+            :aria-pressed="moveMode ? undefined : node.visible"
             class="absolute w-20 flex flex-col items-center gap-1 border-2 rounded-xl px-1.5 py-1 text-center text-[10px] leading-tight shadow-lg"
             :class="node.visible
               ? 'border-primary-300/80 bg-white/95 text-neutral-700 dark:border-primary-500/70 dark:bg-neutral-800/95 dark:text-neutral-100'
               : 'border-neutral-300/80 bg-neutral-200/90 text-neutral-500 opacity-70 dark:border-neutral-600 dark:bg-neutral-800/80 dark:text-neutral-400'"
-            @click.stop="emit('toggle', node)"
+            @click.stop="moveMode ? beginMove(node) : emit('toggle', node)"
+            @contextmenu.prevent.stop="beginMove(node)"
           >
             <span
-              :class="node.visible
-                ? 'i-solar:eye-bold-duotone text-base text-primary-500'
-                : 'i-solar:eye-closed-bold-duotone text-base'"
+              :class="moveMode
+                ? 'i-solar:tag-bold-duotone text-base text-primary-500'
+                : node.visible
+                  ? 'i-solar:eye-bold-duotone text-base text-primary-500'
+                  : 'i-solar:eye-closed-bold-duotone text-base'"
               aria-hidden="true"
             />
             <span class="w-full truncate">{{ meshLabel(node.name) }}</span>

@@ -2732,6 +2732,13 @@ vrm:
     title: Model parts
     choose-category: Choose a category
     choose-part: Choose a part
+    choose-part-to-move: Choose a part to move
+    move: Move
+    moving: Moving
+    move-title: 'Move {name}'
+    move-hint: Choose a new category
+    auto: Auto
+    cancel: Cancel
     reset: Reset
     reset-all: Reset all parts
     back: Back

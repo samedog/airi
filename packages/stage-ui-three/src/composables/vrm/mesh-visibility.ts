@@ -253,6 +253,18 @@ export function getVrmMeshNodes(vrm: Pick<VRM, 'scene'> | undefined): VrmMeshNod
   })
 }
 
+/** Applies user category overrides without mutating the source node list. */
+export function applyVrmMeshCategoryOverrides(
+  nodes: readonly VrmMeshNode[],
+  overrides: Readonly<Record<string, VrmMeshCategory>> | undefined,
+): VrmMeshNode[] {
+  if (!overrides)
+    return [...nodes]
+  return nodes.map(node => overrides[node.id]
+    ? { ...node, category: overrides[node.id] }
+    : node)
+}
+
 /** Applies one visibility value and reports whether the mesh existed. */
 export function setVrmMeshNodeVisibility(
   vrm: Pick<VRM, 'scene'> | undefined,

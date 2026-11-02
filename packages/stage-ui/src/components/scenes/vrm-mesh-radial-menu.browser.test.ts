@@ -32,7 +32,15 @@ const nodes = [
   node('U_Accessories_2.001', 'accessories'),
 ]
 
-function renderMenu(onToggle = vi.fn(), onReset = vi.fn()) {
+function click(locator: { element: () => HTMLElement | SVGElement }) {
+  locator.element().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+}
+
+function renderMenu(
+  onToggle = vi.fn(),
+  onReset = vi.fn(),
+  onRecategorize = vi.fn(),
+) {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en }, missingWarn: false, fallbackWarn: false })
   return render(VrmMeshRadialMenu, {
     props: {
@@ -42,6 +50,7 @@ function renderMenu(onToggle = vi.fn(), onReset = vi.fn()) {
       nodes,
       onToggle,
       onReset,
+      onRecategorize,
     },
     global: { plugins: [i18n] },
   })
@@ -59,10 +68,10 @@ describe('vrm mesh radial menu', () => {
     await expect.element(extras).toBeVisible()
     await expect.element(extras).toBeDisabled()
 
-    await screen.getByRole('button', { name: /Body/ }).click()
+    click(screen.getByRole('button', { name: /Body/ }))
     await expect.element(screen.getByText('Choose a part')).toBeVisible()
 
-    await screen.getByRole('button', { name: 'BODY' }).click()
+    click(screen.getByRole('button', { name: 'BODY' }))
     expect(onToggle).toHaveBeenCalledWith(expect.objectContaining({ id: 'BaseMesh_BODY.001' }))
   })
 
@@ -70,7 +79,62 @@ describe('vrm mesh radial menu', () => {
     const onReset = vi.fn()
     const screen = renderMenu(vi.fn(), onReset)
 
-    await screen.getByRole('button', { name: 'Reset' }).click()
+    click(screen.getByRole('button', { name: 'Reset' }))
     expect(onReset).toHaveBeenCalledOnce()
+  })
+
+  it('moves a part to another category through the move picker', async () => {
+    const onToggle = vi.fn()
+    const onRecategorize = vi.fn()
+    const screen = renderMenu(onToggle, vi.fn(), onRecategorize)
+
+    click(screen.getByRole('button', { name: /Body/ }))
+    await expect.element(screen.getByText('Choose a part')).toBeVisible()
+
+    click(screen.getByRole('button', { name: 'Move' }))
+    await expect.element(screen.getByText('Choose a part to move')).toBeVisible()
+
+    click(screen.getByRole('button', { name: 'BODY' }))
+    await expect.element(screen.getByText('Move BODY')).toBeVisible()
+
+    click(screen.getByRole('button', { name: /Outfit/ }))
+    expect(onToggle).not.toHaveBeenCalled()
+    expect(onRecategorize).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'BaseMesh_BODY.001' }),
+      'outfit',
+    )
+  })
+
+  it('opens the move picker when a part is right-clicked', async () => {
+    const screen = renderMenu()
+
+    click(screen.getByRole('button', { name: /Body/ }))
+    await expect.element(screen.getByText('Choose a part')).toBeVisible()
+
+    screen.getByRole('button', { name: 'BODY' }).element().dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+    )
+    await expect.element(screen.getByText('Move BODY')).toBeVisible()
+  })
+
+  it('returns a part to automatic classification with Auto', async () => {
+    const onRecategorize = vi.fn()
+    const screen = renderMenu(vi.fn(), vi.fn(), onRecategorize)
+
+    click(screen.getByRole('button', { name: /Body/ }))
+    await expect.element(screen.getByText('Choose a part')).toBeVisible()
+
+    click(screen.getByRole('button', { name: 'Move' }))
+    await expect.element(screen.getByText('Choose a part to move')).toBeVisible()
+
+    click(screen.getByRole('button', { name: 'BODY' }))
+    await expect.element(screen.getByText('Move BODY')).toBeVisible()
+
+    click(screen.getByRole('button', { name: 'Auto' }))
+
+    expect(onRecategorize).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'BaseMesh_BODY.001' }),
+      null,
+    )
   })
 })
