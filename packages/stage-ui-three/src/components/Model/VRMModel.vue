@@ -86,6 +86,12 @@ import { createVrmInteractionColliders } from '../../composables/vrm/interaction
 import { resolveInternalVrmHooks } from '../../composables/vrm/internal-hooks'
 import { useVRMLipSync } from '../../composables/vrm/lip-sync'
 import {
+  applyVrmMeshNodeVisibility,
+  getVrmMeshNodes,
+  resetVrmMeshNodeVisibility,
+  setVrmMeshNodeVisibility,
+} from '../../composables/vrm/mesh-visibility'
+import {
   createThreeRendererMemorySnapshot,
   createVrmSceneSummarySnapshot,
   getStageThreeRuntimeTraceContext,
@@ -1490,6 +1496,10 @@ defineExpose({
     vrmFrameRuntimeHook.value = hook
   },
   scene: computed(() => vrm.value?.scene),
+  meshNodes: () => getVrmMeshNodes(vrm.value),
+  setMeshNodeVisible: (id: string, visible: boolean) => setVrmMeshNodeVisibility(vrm.value, id, visible),
+  applyMeshNodeVisibility: (visibility: Record<string, boolean>) => applyVrmMeshNodeVisibility(vrm.value, visibility),
+  resetMeshNodeVisibility: () => resetVrmMeshNodeVisibility(vrm.value),
   lookAtUpdate(target: Vec3) {
     idleEyeSaccades.instantUpdate(vrm.value, target)
   },

@@ -4,7 +4,7 @@ import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
 import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
-import type { VrmInteractionTarget } from '@proj-airi/stage-ui-three'
+import type { VrmInteractionTarget, VrmMeshNode } from '@proj-airi/stage-ui-three'
 
 import type { EmotionPayload } from '../../constants/emotions'
 
@@ -25,7 +25,7 @@ import { ThreeScene } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
 import { createQueue } from '@proj-airi/stream-kit'
 import { Callout } from '@proj-airi/ui'
-import { useBroadcastChannel, useEventListener } from '@vueuse/core'
+import { useBroadcastChannel, useEventListener, useLocalStorage } from '@vueuse/core'
 // import { createTransformers } from '@xsai-transformers/embed'
 // import embedWorkerURL from '@xsai-transformers/embed/worker?worker&url'
 // import { embed } from '@xsai/embed'
@@ -34,6 +34,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
 
 import StageAvatarModelMissing from './stage-avatar-model-missing.vue'
 import StageRenderError from './stage-render-error.vue'
+import VrmMeshRadialMenu from './vrm-mesh-radial-menu.vue'
 
 // import { useDuckDb } from '../../composables/use-duck-db'
 import { clampBeatSyncHitWindow, dancePulseRate, dancePulseTargetSpeed } from '../../constants/beat-sync-pulse'
@@ -315,6 +316,20 @@ let vrmIdleRotationSeconds = 0
 let currentVrmDanceClipId: string | undefined
 let lastVrmAnimationModelId: string | undefined
 const lastSelectedVrmAnimation = new Map<VrmAnimationSlot, string>()
+const vrmMeshNodes = ref<VrmMeshNode[]>([])
+const vrmMeshMenuOpen = ref(false)
+const vrmMeshMenuPosition = ref({ x: 0, y: 0 })
+const vrmMeshVisibilityByModel = useLocalStorage<Record<string, Record<string, boolean>>>(
+  'settings/vrm/mesh-visibility',
+  {},
+)
+const vrmMeshVisibilityModelKey = computed(() => stageModelSelected.value || 'default')
+const currentVrmMeshVisibility = computed(() => vrmMeshVisibilityByModel.value[vrmMeshVisibilityModelKey.value] ?? {})
+
+watch([stageModelRenderer, stageModelSelected, stageModelSelectedUrl], () => {
+  vrmMeshMenuOpen.value = false
+  vrmMeshNodes.value = []
+})
 /** Short idle loops should not flip to a new clip every few seconds. */
 const VRM_IDLE_ROTATION_MIN_SECONDS = 20
 /** Face expression for each dance energy tier. ACT emotions override these. */
@@ -356,6 +371,71 @@ function pickVrmSlotAssetId(slot: VrmAnimationSlot) {
   if (assetId)
     lastSelectedVrmAnimation.set(slot, assetId)
   return assetId
+}
+
+function refreshVrmMeshNodes() {
+  vrmMeshNodes.value = vrmViewerRef.value?.meshNodes() ?? []
+}
+
+function applySavedVrmMeshVisibility() {
+  vrmViewerRef.value?.applyMeshNodeVisibility(currentVrmMeshVisibility.value)
+  refreshVrmMeshNodes()
+}
+
+function saveVrmMeshVisibility(nodeId: string, visible: boolean) {
+  const modelKey = vrmMeshVisibilityModelKey.value
+  const modelVisibility = {
+    ...(vrmMeshVisibilityByModel.value[modelKey] ?? {}),
+    [nodeId]: visible,
+  }
+  vrmMeshVisibilityByModel.value = {
+    ...vrmMeshVisibilityByModel.value,
+    [modelKey]: modelVisibility,
+  }
+}
+
+function onVrmLoaded() {
+  applySavedVrmMeshVisibility()
+}
+
+function openVrmMeshMenu(event?: MouseEvent) {
+  if (stageModelRenderer.value !== 'vrm')
+    return
+
+  refreshVrmMeshNodes()
+  if (vrmMeshNodes.value.length === 0)
+    return
+
+  vrmMeshMenuPosition.value = event
+    ? { x: event.clientX, y: event.clientY }
+    : { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  vrmMeshMenuOpen.value = true
+}
+
+function onStageContextMenu(event: MouseEvent) {
+  if (stageModelRenderer.value !== 'vrm')
+    return
+  event.preventDefault()
+  openVrmMeshMenu(event)
+}
+
+function toggleVrmMeshNode(node: VrmMeshNode) {
+  const visible = !node.visible
+  if (!vrmViewerRef.value?.setMeshNodeVisible(node.id, visible))
+    return
+
+  vrmMeshNodes.value = vrmMeshNodes.value.map(candidate =>
+    candidate.id === node.id ? { ...candidate, visible } : candidate,
+  )
+  saveVrmMeshVisibility(node.id, visible)
+}
+
+function resetVrmMeshVisibility() {
+  vrmViewerRef.value?.resetMeshNodeVisibility()
+  refreshVrmMeshNodes()
+  const next = { ...vrmMeshVisibilityByModel.value }
+  delete next[vrmMeshVisibilityModelKey.value]
+  vrmMeshVisibilityByModel.value = next
 }
 
 function danceTierEnergy(energy: number) {
@@ -1274,7 +1354,7 @@ defineExpose({
 </script>
 
 <template>
-  <div relative h-full w-full>
+  <div relative h-full w-full @contextmenu="onStageContextMenu">
     <div relative h-full w-full>
       <Live2DScene
         v-if="stageModelRenderer === 'live2d' && showStage"
@@ -1320,6 +1400,7 @@ defineExpose({
         @error="reportStageRenderError"
         @idle-animation-looped="onVrmIdleAnimationLooped"
         @vrm-interact="onVRMInteract"
+        @vrm-loaded="onVrmLoaded"
       />
       <SpineScene
         v-if="stageModelRenderer === 'spine' && showStage"
@@ -1403,5 +1484,24 @@ defineExpose({
         @retry="retryStageRenderer"
       />
     </div>
+    <button
+      v-if="stageModelRenderer === 'vrm' && vrmMeshNodes.length > 0"
+      type="button"
+      class="absolute right-2 top-2 z-20 size-8 flex items-center justify-center border border-neutral-200/80 rounded-full bg-white/80 text-neutral-600 shadow-md backdrop-blur-md dark:border-neutral-700/80 dark:bg-neutral-900/80 hover:bg-white dark:text-neutral-300 dark:hover:bg-neutral-900"
+      title="Model parts"
+      aria-label="Model parts"
+      @click.stop="openVrmMeshMenu()"
+    >
+      <span class="i-solar:eye-bold-duotone text-base" aria-hidden="true" />
+    </button>
+    <VrmMeshRadialMenu
+      :open="vrmMeshMenuOpen"
+      :x="vrmMeshMenuPosition.x"
+      :y="vrmMeshMenuPosition.y"
+      :nodes="vrmMeshNodes"
+      @close="vrmMeshMenuOpen = false"
+      @toggle="toggleVrmMeshNode"
+      @reset="resetVrmMeshVisibility"
+    />
   </div>
 </template>

@@ -110,6 +110,7 @@ const emit = defineEmits<{
   (e: 'loadModelProgress', value: number): void
   (e: 'error', value: unknown): void
   (e: 'vrmInteract', value: VrmInteractionTarget): void
+  (e: 'vrmLoaded', value: string): void
   (e: 'idleAnimationLooped', value: { duration: number }): void
 }>()
 /**
@@ -681,6 +682,7 @@ function onVRMModelLoaded(value: string) {
   pendingCommittedModelRevision.value = bindingRevision.value
   loadingModelIdentity.value = undefined
   modelPhase.value = 'ready'
+  emit('vrmLoaded', value)
   void completeSceneBinding(bindingRevision.value)
 }
 function onVRMModelError(error: unknown) {
@@ -1013,6 +1015,10 @@ defineExpose({
   camera: () => camera.value,
   renderer: () => tresContextRef.value?.renderer.instance,
   scene: () => modelRef.value?.scene,
+  meshNodes: () => modelRef.value?.meshNodes() ?? [],
+  setMeshNodeVisible: (id: string, visible: boolean) => modelRef.value?.setMeshNodeVisible(id, visible) ?? false,
+  applyMeshNodeVisibility: (visibility: Record<string, boolean>) => modelRef.value?.applyMeshNodeVisibility(visibility),
+  resetMeshNodeVisibility: () => modelRef.value?.resetMeshNodeVisibility(),
   readRenderTargetRegionAtClientPoint,
   captureFrame: async () => {
     if (!tresContextRef.value)
