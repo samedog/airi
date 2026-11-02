@@ -136,9 +136,23 @@ const vrmAnimationGroups = computed(() => {
   return groups
 })
 
+const expandedVrmAnimationGroups = ref(new Set<string>())
 const vrmAnimationLibraryOpen = ref(false)
 const vrmAnimationLibraryQuery = ref('')
 const previewingVrmAnimationId = ref<string>()
+
+function toggleVrmAnimationGroup(key: string) {
+  const next = new Set(expandedVrmAnimationGroups.value)
+  if (next.has(key))
+    next.delete(key)
+  else
+    next.add(key)
+  expandedVrmAnimationGroups.value = next
+}
+
+function boundVrmAnimationSlotCount(group: { slots: { slot: VrmAnimationSlot }[] }) {
+  return group.slots.filter(slot => vrmAnimationIds(slot.slot).length > 0).length
+}
 
 const filteredVrmAnimationAssets = computed(() => {
   const query = vrmAnimationLibraryQuery.value.trim().toLowerCase()
@@ -434,10 +448,28 @@ const envOptions = computed(() => [
             :key="group.key"
             class="flex flex-col gap-2"
           >
-            <h3 class="text-xs text-neutral-500 font-semibold tracking-wide uppercase dark:text-neutral-400">
-              {{ group.label }}
-            </h3>
-            <div :class="group.columns === 2 ? 'grid gap-2 sm:grid-cols-2' : 'flex flex-col gap-2'">
+            <button
+              type="button"
+              :aria-expanded="expandedVrmAnimationGroups.has(group.key)"
+              class="w-full flex items-center gap-2 rounded-lg py-1 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900/40"
+              @click="toggleVrmAnimationGroup(group.key)"
+            >
+              <span
+                class="i-solar:alt-arrow-down-linear shrink-0 text-base text-neutral-500 transition-transform duration-200 dark:text-neutral-400"
+                :class="expandedVrmAnimationGroups.has(group.key) ? 'rotate-180' : ''"
+                aria-hidden="true"
+              />
+              <span class="text-xs text-neutral-500 font-semibold tracking-wide uppercase dark:text-neutral-400">
+                {{ group.label }}
+              </span>
+              <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                {{ boundVrmAnimationSlotCount(group) }}/{{ group.slots.length }}
+              </span>
+            </button>
+            <div
+              v-if="expandedVrmAnimationGroups.has(group.key)"
+              :class="group.columns === 2 ? 'grid gap-2 sm:grid-cols-2' : 'flex flex-col gap-2'"
+            >
               <div
                 v-for="slot in group.slots"
                 :key="slot.slot"
