@@ -67,8 +67,11 @@ export function stripVrmNonBodyTracks(clip: AnimationClip, vrm: VRMCore) {
 }
 
 /**
- * Shifts a clip's position tracks to start at the current normalized hips position.
- * Call before playback, with the rig in its rest pose. This mutates the clip and preserves relative motion between frames.
+ * Shifts a clip's position tracks to start at the model's normalized rest hips position.
+ *
+ * The current hips node can already be displaced by the previous clip. Anchoring to that
+ * position makes every dance-clip swap accumulate drift. The rest pose is stable across
+ * clips, so each clip starts from the same in-place origin.
  */
 export function reAnchorRootPositionTrack(clip: AnimationClip, _vrm: VRMCore) {
   const hipNode = _vrm.humanoid?.getNormalizedBoneNode('hips')
@@ -78,7 +81,10 @@ export function reAnchorRootPositionTrack(clip: AnimationClip, _vrm: VRMCore) {
   }
   // Tracks animate local positions. A world-space anchor bakes parent transforms into the clip,
   // and the animation mixer applies those transforms again during playback.
-  const defaultHipPos = hipNode.position.clone()
+  const normalizedRestHips = _vrm.humanoid?.normalizedRestPose.hips?.position
+  const defaultHipPos = normalizedRestHips
+    ? new Vector3(normalizedRestHips[0], normalizedRestHips[1], normalizedRestHips[2])
+    : hipNode.position.clone()
 
   // Calculate the offset from the hips node to the hips's first frame position
   const hipsTrack = clip.tracks.find(track =>

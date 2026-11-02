@@ -692,47 +692,18 @@ pages:
             label: Audio source
             placeholder: Select an audio source
           title: Audio source
-        beat_visualizer:
-          title: Beat visualizer
-        parameters:
-          advanced_parameters: Advanced Parameters
-          description: Tweak the beat detection parameters.
-          title: Parameters
-          parameters:
-            adaptive_threshold:
-              description: >-
-                Whether to apply adaptive thresholds based on signal variance
-                over time.
-              label: Adaptive threshold
-            buffer_duration:
-              description: Duration of the internal analysis buffer.
-              label: Buffer duration
-            envelope_filter_frequency:
-              description: >-
-                Frequency for the envelope filter applied to smooth energy
-                changes.
-              label: Envelope filter frequency
-            highpass_filter_frequency:
-              description: >-
-                Frequency for the highpass filter applied to reduce low
-                frequencies like sub-bass noises.
-              label: Highpass filter frequency
-            lowpass_filter_frequency:
-              description: >-
-                Frequency for the lowpass filter applied to reduce high
-                frequencies like vocals.
-              label: Lowpass filter frequency
-            min_beat_interval:
-              description: Maximum BPM or minimum interval between detected beats.
-              label: Max BPM / Min beat interval
-            sensitivity:
-              label: Sensitivity
-            spectral_flux:
-              description: Whether to enable spectral flux-based onset detection.
-              label: Spectral flux
-            warmup:
-              description: Whether to warm up before detecting beats for better accuracy.
-              label: Warmup
+        vibe:
+          title: Vibe
+          description: Energy follows loudness. Punch marks transients. Hit measures musical changes and drives dance speed.
+          energy: Energy
+          punch: Punch
+          hit: Hit
+          sensitivity:
+            label: Energy sensitivity
+            description: Raise this when loud, compressed tracks never reach the higher dance tiers.
+          hit_window:
+            label: Hit window
+            description: Number of recent HITs used to set the dance speed. Shorter reacts faster; longer is steadier.
     artistry:
       title: Artistry
       description: Image generation, scene background and drawing.
@@ -2675,16 +2646,31 @@ theme:
 title: Settings
 voices: Voice
 vrm:
+  tabs:
+    model: Model
+    animations: Animations
   animation:
     title: VRM Animations
-    description: Import .vrma files and assign one to each emotion or to the looping idle. Idle defaults to the bundled AIRI animation. Dance is used while Beat Sync is active, and its speed follows the detected BPM. Animations stay on this device and are not uploaded.
+    description: Import .vrma files and assign one or more to each emotion or to the looping idle. A slot with multiple clips picks one at random without repeating the previous choice. Dance clips can be tagged Calm, Medium, or Intense, and Beat Sync vibe energy chooses among the tags. Idle defaults to the bundled AIRI animation. Dance is used while Beat Sync is active, and its speed follows the HIT pulse. Animations stay on this device and are not uploaded.
     desktop-only: VRM animation imports are available in the desktop app.
     import: Import .vrma
     open-folder: Open animations folder
     refresh: Refresh
+    library: Imported animations
+    preview: Preview
+    stop: Stop
+    delete: Delete
     none: None
     default-idle: AIRI default (bundled)
-    clear: Clear animation
+    add: Add animation
+    add-more: Add another animation
+    remove: Remove animation
+    clear: Clear slot
+    energy: Clip intensity
+    energy-auto: Auto
+    energy-low: Calm
+    energy-medium: Medium
+    energy-high: Intense
     bind-error: Select a VRM Avatar Model before assigning animations.
     missing: 'Missing animation ({id})'
     empty: No animations imported yet.

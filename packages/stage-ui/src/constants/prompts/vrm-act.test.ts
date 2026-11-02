@@ -15,6 +15,7 @@ describe('vrm ACT prompt', () => {
     ])
 
     expect(prompt).toContain('Motion controls the body. Emotion controls the face.')
+    expect(prompt).toContain('Without an explicit motion, an emotion can also select one of its bound body clips.')
     expect(prompt).toContain('<|ACT {"motion":"Standing Arguing"}|>')
     expect(prompt).toContain('<|ACT {"emotion":"happy","motion":"Standing Arguing"}|>')
     expect(prompt).toContain('- "Standing Arguing"')

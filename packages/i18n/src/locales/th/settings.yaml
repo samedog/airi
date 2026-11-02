@@ -615,43 +615,6 @@ pages:
             stop: หยุด
           description: เลือกแหล่งเสียงที่จะใช้ตรวจจับจังหวะ
           title: แหล่งเสียง
-        beat_visualizer:
-          title: ตัวแสดงจังหวะ
-        parameters:
-          advanced_parameters: พารามิเตอร์ขั้นสูง
-          description: ปรับพารามิเตอร์การตรวจจับจังหวะ
-          title: พารามิเตอร์
-          parameters:
-            adaptive_threshold:
-              description: >-
-                จะใช้เกณฑ์แบบปรับตัวตามความแปรปรวนของสัญญาณตามเวลาหรือไม่
-              label: เกณฑ์แบบปรับตัว
-            buffer_duration:
-              description: ระยะเวลาของบัฟเฟอร์สำหรับการวิเคราะห์ภายใน
-              label: ระยะเวลาบัฟเฟอร์
-            envelope_filter_frequency:
-              description: >-
-                ความถี่ของตัวกรอง envelope ที่ใช้ทำให้การเปลี่ยนแปลงของพลังงานราบรื่นขึ้น
-              label: ความถี่ของตัวกรอง envelope
-            highpass_filter_frequency:
-              description: >-
-                ความถี่ของตัวกรองความถี่สูงผ่าน ที่ใช้ลดความถี่ต่ำ เช่น เสียงรบกวนย่านซับเบส
-              label: ความถี่ของตัวกรองความถี่สูงผ่าน
-            lowpass_filter_frequency:
-              description: >-
-                ความถี่ของตัวกรองความถี่ต่ำผ่าน ที่ใช้ลดความถี่สูง เช่น เสียงร้อง
-              label: ความถี่ของตัวกรองความถี่ต่ำผ่าน
-            min_beat_interval:
-              description: BPM สูงสุด หรือช่วงห่างขั้นต่ำระหว่างจังหวะที่ตรวจพบ
-              label: BPM สูงสุด / ช่วงห่างจังหวะขั้นต่ำ
-            sensitivity:
-              label: ความไว
-            spectral_flux:
-              description: จะเปิดการตรวจจับจุดเริ่มเสียงด้วย spectral flux หรือไม่
-              label: ฟลักซ์สเปกตรัม
-            warmup:
-              description: จะวอร์มอัปก่อนตรวจจับจังหวะเพื่อความแม่นยำที่ดีขึ้นหรือไม่
-              label: วอร์มอัป
     artistry:
       title: การสร้างภาพ
       description: การสร้างภาพ พื้นหลังของฉาก และการวาด

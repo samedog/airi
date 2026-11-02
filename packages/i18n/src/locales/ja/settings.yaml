@@ -615,43 +615,6 @@ pages:
             stop: 停止
           description: ビートを検出するオーディオソースを選択します。
           title: オーディオソース
-        beat_visualizer:
-          title: ビートビジュアライザー
-        parameters:
-          advanced_parameters: 高度なパラメータ
-          description: ビート検出パラメーターを調整します。
-          title: パラメーター
-          parameters:
-            adaptive_threshold:
-              description: >-
-                時間の経過に伴う信号の変動に基づいて補正閾値を適用するかどうか。
-              label: 補正閾値
-            buffer_duration:
-              description: 内部分析バッファの期間。
-              label: バッファ期間
-            envelope_filter_frequency:
-              description: >-
-                エネルギー変化を平滑化するために適用されるエンベロープフィルターの周波数。
-              label: エンベロープフィルター周波数
-            highpass_filter_frequency:
-              description: >-
-                サブベースノイズのような低周波を低減するために適用される ハイパスフィルターの周波数。
-              label: ハイパスフィルター周波数
-            lowpass_filter_frequency:
-              description: >-
-                声のような高周波を低減するために適用されるローパスフィルターの周波数。
-              label: ローパスフィルター周波数
-            min_beat_interval:
-              description: 最大BPM、または検出されるビート間の最小間隔。
-              label: 最大BPM / 最小ビート間隔
-            sensitivity:
-              label: 感度
-            spectral_flux:
-              description: スペクトルフラックスに基づく開始検出を有効にするかどうか。
-              label: スペクトルフラックス
-            warmup:
-              description: より高い精度のために、ビートを検出する前にウォームアップを行うべきかどうか。
-              label: ウォームアップ
     artistry:
       title: アート (Artistry)
       description: 画像、背景、絵画の生成。

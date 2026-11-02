@@ -615,43 +615,6 @@ pages:
             stop: Detener
           description: Selecciona una fuente de audio desde la que detectar los ritmos.
           title: Fuente de audio
-        beat_visualizer:
-          title: Visualizador de ritmos
-        parameters:
-          advanced_parameters: Parámetros Avanzados
-          description: Ajustar los parámetros de detección de ritmo.
-          title: Parámetros
-          parameters:
-            adaptive_threshold:
-              description: >-
-                Si se aplican umbrales adaptativos basados en la variación de la señal con el tiempo.
-              label: Umbral adaptativo
-            buffer_duration:
-              description: Duración del buffer de análisis interno.
-              label: Duración del buffer
-            envelope_filter_frequency:
-              description: >-
-                Frecuencia del filtro envolvente aplicado para suavizar los cambios de energía.
-              label: Frecuencia del filtro de sobres
-            highpass_filter_frequency:
-              description: >-
-                Frecuencia para el filtro de paso alto aplicado para reducir frecuencias bajas como ruidos sub bajos.
-              label: Frecuencia del filtro de altibajos
-            lowpass_filter_frequency:
-              description: >-
-                Frecuencia para el filtro paso bajo aplicado para reducir frecuencias altas como la voz.
-              label: Frecuencia de filtro de paso bajo
-            min_beat_interval:
-              description: BPM máximo o intervalo mínimo entre los ritmos detectados
-              label: Intervalo de Máx BPM /Mín Ritmo
-            sensitivity:
-              label: Sensibilidad
-            spectral_flux:
-              description: Si se habilita la detección espectral basada en flujos.
-              label: Flujo espectral
-            warmup:
-              description: Se calienta antes de detectar ritmos para una mejor precisión.
-              label: Calentamiento
     artistry:
       title: Generación de imágenes
       description: Generación de imágenes, fondo de escena y dibujo.

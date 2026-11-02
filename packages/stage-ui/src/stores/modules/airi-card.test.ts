@@ -760,22 +760,40 @@ describe('airi-card store', () => {
     await cardStore.initialize()
 
     await expect(cardStore.updateVrmAnimationBindings(cardId, 'vrm-avatar-model', {
-      happy: 'animation-happy',
-      angry: 'animation-angry',
+      happy: [
+        { id: 'animation-happy-a', energy: 0.8 },
+        { id: 'animation-happy-b' },
+      ],
+      angry: [{ id: 'animation-angry' }],
     })).resolves.toBe(true)
 
     expect(cardStore.selectedAvatarModel).toMatchObject({
       type: 'vrm',
       config: {
         animations: {
-          happy: 'animation-happy',
-          angry: 'animation-angry',
+          happy: [
+            { id: 'animation-happy-a', energy: 0.8 },
+            { id: 'animation-happy-b' },
+          ],
+          angry: [{ id: 'animation-angry' }],
         },
       },
     })
     await expect(cardStore.updateVrmAnimationBindings(cardId, 'missing-avatar-model', {
-      happy: 'animation-happy',
+      happy: [{ id: 'animation-happy-a' }],
     })).resolves.toBe(false)
+
+    expect(cardStore.removeVrmAnimationAsset('animation-happy-a')).toBe(true)
+    expect(cardStore.selectedAvatarModel).toMatchObject({
+      type: 'vrm',
+      config: {
+        animations: {
+          happy: [{ id: 'animation-happy-b' }],
+          angry: [{ id: 'animation-angry' }],
+        },
+      },
+    })
+    expect(cardStore.removeVrmAnimationAsset('missing-animation')).toBe(false)
 
     const catalog = useVrmAnimationCatalogStore()
     catalog.replace([{

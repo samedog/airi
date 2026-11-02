@@ -16,6 +16,7 @@ import localeMessages from '@proj-airi/i18n/locales'
 
 import { errorMessageFrom } from '@moeru/std'
 import { useLocalStorageManualReset } from '@proj-airi/stage-shared/composables'
+import { normalizeVrmAnimationBindings, removeVrmAnimationAssetFromBindings } from '@proj-airi/stage-shared/vrm-animations'
 import { inspectLive2DModelControls } from '@proj-airi/stage-ui-live2d/controls/manifest'
 import { isLive2DControlEnabled } from '@proj-airi/stage-ui-live2d/controls/policy'
 import { StorageSerializers, useDocumentVisibility, watchDebounced } from '@vueuse/core'
@@ -509,7 +510,7 @@ export const useAiriCardStore = defineStore('airi-card', () => {
       ...avatarModel,
       config: {
         ...avatarModel.config,
-        animations: { ...animations },
+        animations: normalizeVrmAnimationBindings(animations),
       },
     }
     cards.value.set(characterId, {
@@ -524,6 +525,49 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     })
 
     return true
+  }
+
+  /** Removes a deleted library asset from every VRM avatar model on every card. */
+  function removeVrmAnimationAsset(assetId: string) {
+    let changed = false
+
+    for (const [characterId, card] of [...cards.value]) {
+      let cardChanged = false
+      const avatarModels = card.extensions.airi.avatarModels.map((model) => {
+        if (model.type !== 'vrm')
+          return model
+
+        const result = removeVrmAnimationAssetFromBindings(model.config.animations, assetId)
+        if (!result.changed)
+          return model
+
+        cardChanged = true
+        return {
+          ...model,
+          config: {
+            ...model.config,
+            animations: result.bindings,
+          },
+        }
+      })
+
+      if (!cardChanged)
+        continue
+
+      changed = true
+      cards.value.set(characterId, {
+        ...card,
+        extensions: {
+          ...card.extensions,
+          airi: {
+            ...card.extensions.airi,
+            avatarModels,
+          },
+        },
+      })
+    }
+
+    return changed
   }
 
   async function setCharacterDefaultAvatarModelFromDisplayModel(characterId: string, displayModelId: string) {
@@ -1553,6 +1597,7 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     selectAvatarModel,
     updateLive2DControlPolicy,
     updateVrmAnimationBindings,
+    removeVrmAnimationAsset,
     initialize,
     activateCard,
     configureForAuthentication,

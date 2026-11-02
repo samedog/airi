@@ -15,7 +15,8 @@ import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import { normalizeActPayload, Playback } from '@proj-airi/pipelines-audio'
 import { presenceBubbleIdle, presenceBubbleThinking } from '@proj-airi/stage-shared'
-import { getBeatSyncState, listenBeatSyncBeatSignal, listenBeatSyncStateChange } from '@proj-airi/stage-shared/beat-sync'
+import { BEAT_SYNC_HIT_COOLDOWN_MS, BEAT_SYNC_HIT_THRESHOLD, getBeatSyncState, listenBeatSyncStateChange, listenBeatSyncVibeSignal } from '@proj-airi/stage-shared/beat-sync'
+import { selectVrmAnimationAssetId, selectVrmAnimationClipByEnergy, selectVrmAnimationEnergyTier, VRM_ANIMATION_ENERGY_INTENSE, VRM_ANIMATION_ENERGY_MEDIUM } from '@proj-airi/stage-shared/vrm-animations'
 import { createLive2D, defaultLive2DMotionControlDynamics, Live2DScene, useLive2DMotionControl, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { MMDScene } from '@proj-airi/stage-ui-mmd'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
@@ -34,7 +35,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
 import StageAvatarModelMissing from './stage-avatar-model-missing.vue'
 import StageRenderError from './stage-render-error.vue'
 
-import { beatSyncDanceSpeed, bpmFromBeatInterval } from '../../constants/beat-sync-dance'
+import { clampBeatSyncHitWindow, dancePulseRate, dancePulseTargetSpeed } from '../../constants/beat-sync-pulse'
 // import { useDuckDb } from '../../composables/use-duck-db'
 import { Emotion, EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
 import { live2dMotionMagicProfiles, useLive2DMotionMagic, useLive2DMotionMagicSettings } from '../../features/motions/live2d'
@@ -49,7 +50,7 @@ import { useSharedLive2DExpressionPreview } from '../../stores/live2d'
 import { useAiriCardStore } from '../../stores/modules/airi-card'
 import { useSpeechStore } from '../../stores/modules/speech'
 import { useSettingsPresenceBubble } from '../../stores/presence-bubble'
-import { useSettings } from '../../stores/settings'
+import { useSettings, useSettingsBeatSync } from '../../stores/settings'
 import { useSettingsStageModel } from '../../stores/settings/stage-model'
 import { useSpeechOutputControlStore } from '../../stores/speech-output-control'
 import { useVoiceStore } from '../../stores/voice'
@@ -78,12 +79,33 @@ const componentState = defineModel<'pending' | 'loading' | 'mounted'>('state', {
 // const transformersProvider = createTransformers({ embedWorkerURL })
 
 const vrmViewerRef = ref<InstanceType<typeof ThreeScene>>()
+
+/** Keeps a rejected viewer expression from becoming an unhandled promise. */
+async function setVrmExpression(expression: string, intensity = 1, holdMs = 3000) {
+  try {
+    await vrmViewerRef.value?.setExpression(expression, intensity, holdMs)
+  }
+  catch (error) {
+    console.warn(`[Stage] Failed to set VRM expression "${expression}"`, error)
+  }
+}
+
+function resetVrmExpression() {
+  try {
+    vrmViewerRef.value?.resetExpression()
+  }
+  catch (error) {
+    console.warn('[Stage] Failed to reset VRM expression', error)
+  }
+}
 const live2dSceneRef = ref<InstanceType<typeof Live2DScene>>()
 const spineSceneRef = ref<InstanceType<typeof SpineScene>>()
 const tachieSceneRef = ref<InstanceType<typeof TachieScene>>()
 const mmdSceneRef = ref<InstanceType<typeof MMDScene>>()
 
 const settingsStore = useSettings()
+const beatSyncSettings = useSettingsBeatSync()
+const { dancePulseHits } = storeToRefs(beatSyncSettings)
 const {
   stageModelRenderer,
   stageViewControlsEnabled,
@@ -154,6 +176,9 @@ const { mouthOpenSize, nowSpeaking } = storeToRefs(useSpeakingStore())
 const activeSpeechMotion = ref<string>()
 /** A held VRM expression must return to neutral when the whole response ends. */
 const speechEmotionActive = ref(false)
+let activeDanceExpressionTier: number | undefined
+let actExpressionActive = false
+let actExpressionTimer: ReturnType<typeof setTimeout> | undefined
 let speechMotionWatchdog: ReturnType<typeof setTimeout> | undefined
 
 function clearSpeechMotionWatchdog() {
@@ -180,9 +205,14 @@ watch(speechVoicing, (voicing) => {
     return
   if (speechEmotionActive.value) {
     speechEmotionActive.value = false
+    actExpressionActive = false
+    activeDanceExpressionTier = undefined
+    clearActExpressionTimer()
     if (stageModelRenderer.value === 'vrm')
-      vrmViewerRef.value?.resetExpression()
+      resetVrmExpression()
   }
+  if (stageModelRenderer.value === 'vrm')
+    applyDanceTierExpression()
   if (!activeSpeechMotion.value)
     return
   clearSpeechMotionWatchdog()
@@ -211,7 +241,7 @@ function onVRMInteract(target: VrmInteractionTarget) {
   if (now - lastTriggeredAt < VRM_INTERACTION_COOLDOWN_MS)
     return
   lastVrmInteractionAt.set(target, now)
-  vrmViewerRef.value?.setExpression(getVrmInteractionExpression(target), 1)
+  void setVrmExpression(getVrmInteractionExpression(target), 1)
 }
 
 const { onBeforeMessageComposed, onBeforeSend, onTokenLiteral, onTokenSpecial, onStreamEnd, onAssistantResponseEnd } = useChatStore()
@@ -310,10 +340,42 @@ const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
 const vrmIdleAnimation = ref(animations.idleLoop.toString())
 const vrmDanceAnimation = ref<string>()
 const beatSyncActive = ref(false)
-const beatSyncBpm = ref(0)
-let vrmBaseAnimationRequest = 0
+const beatSyncEnergy = ref(0)
+const beatSyncPulseSpeed = ref(1)
+const hitTimes: number[] = []
+let hitArmed = true
+let lastHitAt = Number.NEGATIVE_INFINITY
+let lastVibeAt = Number.NEGATIVE_INFINITY
+let vibeWatchdog: ReturnType<typeof setInterval> | undefined
+const VIBE_TIMEOUT_MS = 2000
+let vrmIdleAnimationRequest = 0
+let vrmDanceAnimationRequest = 0
+let vrmIdleRotationSeconds = 0
+let currentVrmDanceClipId: string | undefined
+let lastVrmAnimationModelId: string | undefined
+const lastSelectedVrmAnimation = new Map<VrmAnimationSlot, string>()
+/** Short idle loops should not flip to a new clip every few seconds. */
+const VRM_IDLE_ROTATION_MIN_SECONDS = 20
+/** Face expression for each dance energy tier. ACT emotions override these. */
+const DANCE_TIER_EXPRESSIONS = [
+  { minEnergy: VRM_ANIMATION_ENERGY_INTENSE, expression: 'angry', intensity: 0.65 },
+  { minEnergy: VRM_ANIMATION_ENERGY_MEDIUM, expression: 'happy', intensity: 0.7 },
+  { minEnergy: 0, expression: 'relaxed', intensity: 0.6 },
+] as const
+const DANCE_HIT_THRESHOLD = BEAT_SYNC_HIT_THRESHOLD
+const DANCE_HIT_COOLDOWN_MS = BEAT_SYNC_HIT_COOLDOWN_MS
+const DANCE_HIT_TIMEOUT_MS = 1500
+const DANCE_PULSE_SMOOTHING = 0.08
+/** Global speed trim for Beat Sync dance playback. */
+const VRM_DANCE_SPEED_SCALE = 0.75
+/**
+ * Effective Beat Sync dance speed is clamped to 0.5x..1.5x. The 0.75 trim
+ * would reach 0.375x at the pulse minimum, so this floor intentionally wins.
+ */
+const MIN_VRM_DANCE_SPEED = 0.5
 let disposeBeatSyncState: (() => void) | undefined
-let disposeBeatSyncBeat: (() => void) | undefined
+let disposeBeatSyncVibe: (() => void) | undefined
+let beatSyncScopeDisposed = false
 
 const vrmBaseAnimation = computed(() => {
   if (beatSyncActive.value && vrmDanceAnimation.value)
@@ -322,57 +384,262 @@ const vrmBaseAnimation = computed(() => {
 })
 const vrmBaseAnimationSpeed = computed(() => {
   if (beatSyncActive.value && vrmDanceAnimation.value)
-    return beatSyncDanceSpeed(beatSyncBpm.value, true)
+    return Math.max(MIN_VRM_DANCE_SPEED, beatSyncPulseSpeed.value * VRM_DANCE_SPEED_SCALE)
   return 1
 })
 
-async function refreshVrmBaseAnimations() {
-  const request = ++vrmBaseAnimationRequest
-  const idleId = vrmAnimationBindings.value.idle
-  const danceId = vrmAnimationBindings.value.dance
-  const [idleUrl, danceUrl] = await Promise.all([
-    idleId ? vrmAnimationsStore.getAnimationUrl(idleId) : undefined,
-    danceId ? vrmAnimationsStore.getAnimationUrl(danceId) : undefined,
-  ])
-  if (request !== vrmBaseAnimationRequest)
+function pickVrmSlotAssetId(slot: VrmAnimationSlot) {
+  const assetId = selectVrmAnimationAssetId(vrmAnimationBindings.value, slot, {
+    previousId: lastSelectedVrmAnimation.get(slot),
+  })
+  if (assetId)
+    lastSelectedVrmAnimation.set(slot, assetId)
+  return assetId
+}
+
+function danceTierEnergy(energy: number) {
+  return selectVrmAnimationEnergyTier(vrmAnimationBindings.value, 'dance', energy)
+}
+
+function clearActExpressionTimer() {
+  if (actExpressionTimer)
+    clearTimeout(actExpressionTimer)
+  actExpressionTimer = undefined
+}
+
+function applyDanceTierExpression(tier = danceTierEnergy(beatSyncEnergy.value)) {
+  if (!beatSyncActive.value || stageModelRenderer.value !== 'vrm')
+    return
+  if (!vrmViewerRef.value)
+    return
+  if (speechEmotionActive.value || actExpressionActive)
     return
 
-  if (idleId && !idleUrl)
+  if (tier === undefined) {
+    if (activeDanceExpressionTier !== undefined) {
+      activeDanceExpressionTier = undefined
+      void setVrmExpression('neutral', 1, 0)
+    }
+    return
+  }
+
+  if (activeDanceExpressionTier !== undefined && Math.abs(activeDanceExpressionTier - tier) < 1e-9)
+    return
+
+  const face = DANCE_TIER_EXPRESSIONS.find(entry => tier >= entry.minEnergy)
+  if (!face) {
+    activeDanceExpressionTier = undefined
+    return
+  }
+
+  activeDanceExpressionTier = tier
+  void setVrmExpression(face.expression, face.intensity, 0)
+}
+
+function pickVrmDanceAssetId() {
+  const targetTier = danceTierEnergy(beatSyncEnergy.value) ?? beatSyncEnergy.value
+  const clip = selectVrmAnimationClipByEnergy(vrmAnimationBindings.value, 'dance', targetTier)
+  if (clip) {
+    lastSelectedVrmAnimation.set('dance', clip.id)
+    return clip.id
+  }
+  return pickVrmSlotAssetId('dance')
+}
+
+async function loadVrmIdleAnimation() {
+  const request = ++vrmIdleAnimationRequest
+  const assetId = pickVrmSlotAssetId('idle')
+  const url = assetId ? await vrmAnimationsStore.getAnimationUrl(assetId) : undefined
+  if (request !== vrmIdleAnimationRequest)
+    return
+
+  if (assetId && !url)
     console.warn('[VRM] animation for "idle" not found')
-  if (danceId && !danceUrl)
+
+  vrmIdleAnimation.value = url ?? animations.idleLoop.toString()
+  vrmIdleRotationSeconds = 0
+}
+
+async function loadVrmDanceAnimation(assetIdOverride?: string) {
+  const request = ++vrmDanceAnimationRequest
+  const assetId = assetIdOverride ?? pickVrmDanceAssetId()
+  const url = assetId ? await vrmAnimationsStore.getAnimationUrl(assetId) : undefined
+  if (request !== vrmDanceAnimationRequest)
+    return
+
+  if (assetId && !url)
     console.warn('[VRM] animation for "dance" not found')
 
-  vrmIdleAnimation.value = idleUrl ?? animations.idleLoop.toString()
-  vrmDanceAnimation.value = danceUrl
+  vrmDanceAnimation.value = url
+  currentVrmDanceClipId = url ? assetId : undefined
+  if (assetId)
+    lastSelectedVrmAnimation.set('dance', assetId)
+}
+
+function refreshVrmBaseAnimations() {
+  const modelId = selectedAvatarModel.value?.displayModelId
+  if (modelId !== lastVrmAnimationModelId) {
+    lastVrmAnimationModelId = modelId
+    vrmIdleAnimation.value = animations.idleLoop.toString()
+    vrmDanceAnimation.value = undefined
+    currentVrmDanceClipId = undefined
+    vrmIdleRotationSeconds = 0
+    lastSelectedVrmAnimation.clear()
+  }
+
+  const danceIds = new Set((vrmAnimationBindings.value.dance ?? []).map(clip => clip.id))
+  if (currentVrmDanceClipId && !danceIds.has(currentVrmDanceClipId))
+    currentVrmDanceClipId = undefined
+
+  void loadVrmIdleAnimation()
+  void loadVrmDanceAnimation()
 }
 
 watch(
   [
     () => selectedAvatarModel.value?.displayModelId,
-    () => vrmAnimationBindings.value.idle,
-    () => vrmAnimationBindings.value.dance,
+    () => JSON.stringify(vrmAnimationBindings.value.idle ?? []),
+    () => JSON.stringify(vrmAnimationBindings.value.dance ?? []),
   ],
   refreshVrmBaseAnimations,
   { immediate: true },
 )
 
+watch(beatSyncActive, (active) => {
+  activeDanceExpressionTier = undefined
+  beatSyncPulseSpeed.value = 1
+  hitTimes.length = 0
+  hitArmed = true
+  lastHitAt = Number.NEGATIVE_INFINITY
+  lastVibeAt = performance.now() / 1000
+  if (vibeWatchdog) {
+    clearInterval(vibeWatchdog)
+    vibeWatchdog = undefined
+  }
+  if (active) {
+    vibeWatchdog = setInterval(() => {
+      if (!beatSyncActive.value)
+        return
+      const now = performance.now() / 1000
+      if (now - lastVibeAt <= VIBE_TIMEOUT_MS / 1000)
+        return
+      beatSyncEnergy.value = 0
+      hitTimes.length = 0
+      beatSyncPulseSpeed.value += (1 - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
+      applyDanceTierExpression()
+    }, 500)
+    void loadVrmDanceAnimation()
+    applyDanceTierExpression()
+  }
+  else {
+    beatSyncEnergy.value = 0
+    currentVrmDanceClipId = undefined
+    vrmIdleRotationSeconds = 0
+    void loadVrmIdleAnimation()
+    if (!speechEmotionActive.value && !actExpressionActive)
+      resetVrmExpression()
+  }
+})
+
+function onBeatSyncVibe({ energy, hit }: { energy: number, hit: number }) {
+  // A stopped detector can still deliver an already-queued frame. Do not let
+  // that frame seed energy or HIT state for the next activation.
+  if (!beatSyncActive.value)
+    return
+
+  const safeEnergy = Number.isFinite(energy) ? Math.min(1, Math.max(0, energy)) : 0
+  const safeHit = Number.isFinite(hit) ? Math.min(1, Math.max(0, hit)) : 0
+  beatSyncEnergy.value = safeEnergy
+
+  const now = performance.now() / 1000
+  lastVibeAt = now
+  if (safeHit < DANCE_HIT_THRESHOLD * 0.5)
+    hitArmed = true
+  if (
+    safeHit >= DANCE_HIT_THRESHOLD
+    && hitArmed
+    && (now - lastHitAt) * 1000 >= DANCE_HIT_COOLDOWN_MS
+  ) {
+    hitArmed = false
+    lastHitAt = now
+    hitTimes.push(now)
+  }
+
+  const hitWindow = clampBeatSyncHitWindow(dancePulseHits.value)
+  while (hitTimes.length > hitWindow)
+    hitTimes.shift()
+
+  const hasTimedOut = Number.isFinite(lastHitAt)
+    && (now - lastHitAt) * 1000 > DANCE_HIT_TIMEOUT_MS
+  if (hasTimedOut) {
+    hitTimes.length = 0
+    hitArmed = true
+    beatSyncPulseSpeed.value += (1 - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
+  }
+  else {
+    const rate = dancePulseRate(hitTimes, now)
+    if (rate !== undefined) {
+      const targetSpeed = dancePulseTargetSpeed(rate)
+      beatSyncPulseSpeed.value += (targetSpeed - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
+    }
+  }
+
+  applyDanceTierExpression()
+}
+
+function onVrmIdleAnimationLooped({ duration }: { duration: number }) {
+  if (beatSyncActive.value && vrmDanceAnimation.value) {
+    const targetTier = danceTierEnergy(beatSyncEnergy.value)
+    const candidateId = targetTier === undefined
+      ? pickVrmSlotAssetId('dance')
+      : selectVrmAnimationClipByEnergy(vrmAnimationBindings.value, 'dance', targetTier, {
+        previousId: currentVrmDanceClipId,
+      })?.id
+
+    if (candidateId && candidateId !== currentVrmDanceClipId)
+      void loadVrmDanceAnimation(candidateId)
+
+    return
+  }
+  if ((vrmAnimationBindings.value.idle?.length ?? 0) < 2)
+    return
+  if (!Number.isFinite(duration) || duration <= 0)
+    return
+
+  vrmIdleRotationSeconds += duration
+  if (vrmIdleRotationSeconds < VRM_IDLE_ROTATION_MIN_SECONDS)
+    return
+  void loadVrmIdleAnimation()
+}
+
 async function connectBeatSync() {
   try {
     const state = await getBeatSyncState()
-    beatSyncActive.value = state.isActive
-    disposeBeatSyncState = listenBeatSyncStateChange((next) => {
+    if (beatSyncScopeDisposed)
+      return
+
+    const disposeState = listenBeatSyncStateChange((next) => {
       beatSyncActive.value = next.isActive
-      if (!next.isActive)
-        beatSyncBpm.value = 0
     })
-    disposeBeatSyncBeat = listenBeatSyncBeatSignal(({ interval }) => {
-      const bpm = bpmFromBeatInterval(interval)
-      if (!bpm)
-        return
-      beatSyncBpm.value = beatSyncBpm.value > 0
-        ? beatSyncBpm.value * 0.75 + bpm * 0.25
-        : bpm
-    })
+
+    let disposeVibe: (() => void) | undefined
+    try {
+      disposeVibe = listenBeatSyncVibeSignal(onBeatSyncVibe)
+    }
+    catch (error) {
+      disposeState()
+      throw error
+    }
+
+    if (beatSyncScopeDisposed) {
+      disposeState()
+      disposeVibe?.()
+      return
+    }
+
+    disposeBeatSyncState = disposeState
+    disposeBeatSyncVibe = disposeVibe
+    beatSyncActive.value = state.isActive
   }
   catch (error) {
     console.warn('[Stage] Beat Sync is unavailable', error)
@@ -394,11 +661,14 @@ async function playVrmEmotionAnimation(name: Emotion) {
   if (!slot)
     return
 
-  const assetId = vrmAnimationBindings.value[slot]
+  const modelId = selectedAvatarModel.value?.displayModelId
+  const assetId = pickVrmSlotAssetId(slot)
   if (!assetId)
     return
 
   const url = await vrmAnimationsStore.getAnimationUrl(assetId)
+  if (selectedAvatarModel.value?.displayModelId !== modelId)
+    return
   if (!url) {
     console.warn(`[VRM] animation for "${name}" not found`)
     return
@@ -412,9 +682,12 @@ async function playVrmEmotionAnimation(name: Emotion) {
 }
 
 async function playVrmMotion(name: string, options: { loop?: boolean, repetitions?: number, fadeMs?: number, returnToIdle?: boolean } = {}) {
+  const modelId = selectedAvatarModel.value?.displayModelId
   const asset = vrmAnimationsStore.findAnimationByName(name)
   if (asset) {
     const url = await vrmAnimationsStore.getAnimationUrl(asset.id)
+    if (selectedAvatarModel.value?.displayModelId !== modelId)
+      return false
     if (url)
       return await vrmViewerRef.value?.playGesture(url, options) ?? false
   }
@@ -468,8 +741,19 @@ const emotionsQueue = createQueue<StageEmotionPayload>({
         if (!value)
           return
 
+        actExpressionActive = true
+        activeDanceExpressionTier = undefined
+        clearActExpressionTimer()
+        if (!speechVoicing.value) {
+          actExpressionTimer = setTimeout(() => {
+            actExpressionTimer = undefined
+            actExpressionActive = false
+            applyDanceTierExpression()
+          }, 3000)
+        }
+
         // Hold through the whole response; reset when speechVoicing drops.
-        await vrmViewerRef.value!.setExpression(value, ctx.data.intensity, speechVoicing.value ? 0 : 3000)
+        await setVrmExpression(value, ctx.data.intensity, speechVoicing.value ? 0 : 3000)
         if (!ctx.data.suppressVrmBodyAnimation)
           await playVrmEmotionAnimation(ctx.data.name)
       }
@@ -971,7 +1255,13 @@ async function captureCharacterFrame() {
 }
 
 onUnmounted(() => {
+  beatSyncScopeDisposed = true
+  if (vibeWatchdog) {
+    clearInterval(vibeWatchdog)
+    vibeWatchdog = undefined
+  }
   clearSpeechMotionWatchdog()
+  clearActExpressionTimer()
   pendingSpecials.clear()
   startedSpeechTurns.clear()
   live2d.dispose()
@@ -980,7 +1270,7 @@ onUnmounted(() => {
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())
   disposeBeatSyncState?.()
-  disposeBeatSyncBeat?.()
+  disposeBeatSyncVibe?.()
   disconnectVoiceOutput()
   releaseSpeechPlayerRole()
   speechAnalysis.disconnect()
@@ -996,14 +1286,12 @@ defineExpose({
   captureFrame: captureCharacterFrame,
   readRenderTargetRegionAtClientPoint,
   setExpression: async (expression: string, intensity = 1, holdMs = 3000) => {
-    if (stageModelRenderer.value === 'vrm') {
-      await vrmViewerRef.value?.setExpression(expression, intensity, holdMs)
-    }
+    if (stageModelRenderer.value === 'vrm')
+      await setVrmExpression(expression, intensity, holdMs)
   },
   resetExpression: () => {
-    if (stageModelRenderer.value === 'vrm') {
-      vrmViewerRef.value?.resetExpression()
-    }
+    if (stageModelRenderer.value === 'vrm')
+      resetVrmExpression()
   },
   playGesture: async (name: string, options?: { loop?: boolean, fadeMs?: number, returnToIdle?: boolean }) => {
     if (stageModelRenderer.value === 'vrm') {
@@ -1063,6 +1351,7 @@ defineExpose({
         :current-audio-source="currentAudioSource"
         @error="reportStageRenderError"
         @vrm-interact="onVRMInteract"
+        @idle-animation-looped="onVrmIdleAnimationLooped"
       />
       <SpineScene
         v-if="stageModelRenderer === 'spine' && showStage"

@@ -20,6 +20,7 @@ export function formatVrmActPrompt(motions: readonly { name: string }[]): string
   return [
     'VRM body motion library for the current model:',
     'Motion controls the body. Emotion controls the face. They can be combined in one token.',
+    'Without an explicit motion, an emotion can also select one of its bound body clips.',
     'Use only the exact motion names from this list.',
     `Play a motion with: <|ACT {"motion":${example}}|>`,
     `Combine with an emotion with: <|ACT {"emotion":"happy","motion":${example}}|>`,

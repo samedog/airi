@@ -105,6 +105,19 @@ describe('reAnchorRootPositionTrack', () => {
     expect(track.values[5] - track.values[2]).toBeCloseTo(0.1)
   })
 
+  it('anchors to rest instead of accumulating the current hips drift', () => {
+    const { vrm, hips } = createRig()
+    const rest = vrm.humanoid.normalizedRestPose.hips!.position!
+    hips.position.x += 5
+    const { clip, track } = createPositionClip(hips)
+
+    reAnchorRootPositionTrack(clip, vrm)
+
+    expect(track.values[0]).toBeCloseTo(rest[0])
+    expect(track.values[1]).toBeCloseTo(rest[1])
+    expect(track.values[2]).toBeCloseTo(rest[2])
+  })
+
   it('preserves an already anchored clip with an identity parent', () => {
     const { vrm, hips } = createRig()
     const track = new VectorKeyframeTrack(`${hips.name}.position`, [0, 1], [0, 0.9, 0, 0, 1, 0])

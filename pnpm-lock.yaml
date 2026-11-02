@@ -273,9 +273,6 @@ catalogs:
     '@napi-rs/image':
       specifier: ^1.14.0
       version: 1.15.0
-    '@nekopaw/tempora':
-      specifier: 0.4.0-alpha.1
-      version: 0.4.0-alpha.1
     '@openpanel/sdk':
       specifier: 1.3.1
       version: 1.3.1
@@ -4820,15 +4817,9 @@ importers:
         specifier: 'catalog:'
         version: 2.0.9(@nuxt/kit@3.21.11(magicast@0.5.4))(vue@3.5.41(typescript@6.0.3))
     devDependencies:
-      '@nekopaw/tempora':
-        specifier: 'catalog:'
-        version: 0.4.0-alpha.1
       '@proj-airi/stage-shared':
         specifier: workspace:^
         version: link:../stage-shared
-      '@types/audioworklet':
-        specifier: 'catalog:'
-        version: 0.0.100
       '@types/three':
         specifier: 'catalog:'
         version: 0.185.4
@@ -4910,9 +4901,6 @@ importers:
       '@xsai/stream-transcription':
         specifier: 'catalog:'
         version: 0.5.1
-      animejs:
-        specifier: 'catalog:'
-        version: 4.5.0(@types/three@0.185.4)(three@0.185.1)
       d3:
         specifier: 'catalog:'
         version: 7.9.0
@@ -4962,9 +4950,6 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
-      '@nekopaw/tempora':
-        specifier: 'catalog:'
-        version: 0.4.0-alpha.1
       '@pinia/colada':
         specifier: 'catalog:'
         version: 1.4.2(pinia@4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.41(typescript@6.0.3)))(vue@3.5.41(typescript@6.0.3))
@@ -5029,15 +5014,9 @@ importers:
       '@moeru/eventa':
         specifier: 'catalog:'
         version: 1.0.2(electron@43.8.4(supports-color@10.2.2))(h3@2.0.2(crossws@0.4.12(srvx@1.0.5)))(hono@4.13.3)(web-worker@1.5.0)
-      '@nekopaw/tempora':
-        specifier: 'catalog:'
-        version: 0.4.0-alpha.1
       '@proj-airi/electron-screen-capture':
         specifier: workspace:^
         version: link:../electron-screen-capture
-      '@types/audioworklet':
-        specifier: 'catalog:'
-        version: 0.0.100
 
   packages/stage-ui:
     dependencies:
@@ -9567,10 +9546,6 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
-
-  '@nekopaw/tempora@0.4.0-alpha.1':
-    resolution: {integrity: sha512-DlTVHe8HG2d925Jdr8qNikzFISr/ej3lq2/b4UMYfRx+IzMvkPasag1mzedWfrkU2keHn3NgClbWP/MbAxFyKw==}
-    engines: {node: '>=22.10.0'}
 
   '@noble/ciphers@2.3.0':
     resolution: {integrity: sha512-Clu/xdfgVTf9o7ngLOURaxePwR0j8sjclKEtVij10/jGulwFsPWCvvRgG/XjUVf8Nei+jLG6uwyXzUTGY1DQrw==}
@@ -24594,8 +24569,6 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.3
     optional: true
-
-  '@nekopaw/tempora@0.4.0-alpha.1': {}
 
   '@noble/ciphers@2.3.0': {}
 

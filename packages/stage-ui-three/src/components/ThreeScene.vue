@@ -107,6 +107,7 @@ const emit = defineEmits<{
   (e: 'loadModelProgress', value: number): void
   (e: 'error', value: unknown): void
   (e: 'vrmInteract', value: VrmInteractionTarget): void
+  (e: 'idleAnimationLooped', value: { duration: number }): void
 }>()
 /**
  * Colours for the presence bubble, read from elements carrying the project's own
@@ -1112,6 +1113,7 @@ defineExpose({
         @scene-bootstrap="onVRMSceneBootstrap"
         @error="onVRMModelError"
         @loaded="onVRMModelLoaded"
+        @idle-animation-looped="(value: { duration: number }) => emit('idleAnimationLooped', value)"
       >
         <PresenceBubble
           :head-anchor="() => modelRef?.headAnchor()"

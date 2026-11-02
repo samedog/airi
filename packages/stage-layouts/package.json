@@ -59,9 +59,7 @@
     "vue-sonner": "catalog:"
   },
   "devDependencies": {
-    "@nekopaw/tempora": "catalog:",
     "@proj-airi/stage-shared": "workspace:^",
-    "@types/audioworklet": "catalog:",
     "@types/three": "catalog:",
     "@vue/test-utils": "catalog:",
     "jsdom": "catalog:",

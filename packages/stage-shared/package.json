@@ -52,8 +52,6 @@
   "devDependencies": {
     "@electron-toolkit/preload": "catalog:",
     "@moeru/eventa": "catalog:",
-    "@nekopaw/tempora": "catalog:",
-    "@proj-airi/electron-screen-capture": "workspace:^",
-    "@types/audioworklet": "catalog:"
+    "@proj-airi/electron-screen-capture": "workspace:^"
   }
 }

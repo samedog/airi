@@ -598,43 +598,6 @@ pages:
             stop: Arrêter
           description: Sélectionnez une source audio pour la détection du rythme.
           title: Source audio
-        beat_visualizer:
-          title: Visualiseur de rythme
-        parameters:
-          advanced_parameters: Paramètres avancés
-          description: Ajustez les paramètres de détection du rythme.
-          title: Paramètres
-          parameters:
-            adaptive_threshold:
-              description: >-
-                Appliquer ou non des seuils adaptatifs basés sur la variance du signal dans le temps.
-              label: Seuil adaptatif
-            buffer_duration:
-              description: Durée du tampon (buffer) d'analyse interne.
-              label: Durée du tampon
-            envelope_filter_frequency:
-              description: >-
-                Fréquence du filtre d'enveloppe appliqué pour lisser les variations d'énergie.
-              label: Fréquence du filtre d'enveloppe
-            highpass_filter_frequency:
-              description: >-
-                Fréquence du filtre passe-haut appliqué pour réduire les basses fréquences comme les bruits de sub-basses.
-              label: Fréquence du filtre passe-haut
-            lowpass_filter_frequency:
-              description: >-
-                Fréquence du filtre passe-bas appliqué pour réduire les hautes fréquences comme les voix.
-              label: Fréquence du filtre passe-bas
-            min_beat_interval:
-              description: BPM maximum ou intervalle minimum entre les battements détectés.
-              label: BPM Max / Intervalle de battement Min
-            sensitivity:
-              label: Sensibilité
-            spectral_flux:
-              description: Activer ou non la détection d'attaque (onset) basée sur le flux spectral.
-              label: Flux spectral
-            warmup:
-              description: Si vous voulez un échauffement pour une détection de rythme plus précise.
-              label: Échauffement
     artistry:
       title: Création d’images
       description: Génération d’images, arrière-plans de scène et dessin.
