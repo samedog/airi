@@ -35,8 +35,9 @@ function createVrm() {
   const duplicateA = mesh('Extra', 'Extra A')
   const duplicateB = mesh('Extra', 'Extra B')
   const collider = mesh('VRMC_springBone_collider_Body', 'Collider')
+  const interactionCollider = mesh('vrm_interaction_head', 'Interaction')
 
-  scene.add(body, jacket, duplicateA, duplicateB, collider)
+  scene.add(body, jacket, duplicateA, duplicateB, collider, interactionCollider)
   return {
     scene,
     body,
@@ -44,12 +45,14 @@ function createVrm() {
     duplicateA,
     duplicateB,
     collider,
+    interactionCollider,
   } as unknown as VRM & {
     body: Mesh
     jacket: Mesh
     duplicateA: Mesh
     duplicateB: Mesh
     collider: Mesh
+    interactionCollider: Mesh
   }
 }
 
@@ -65,6 +68,17 @@ describe('vrm mesh visibility', () => {
     ])
     expect(getVrmMeshNodes(vrm)[0].materialNames).toEqual(['Skin'])
     expect(getVrmMeshNodes(vrm)[0].vertexCount).toBe(3)
+  })
+
+  it('ignores invisible interaction raycaster colliders', () => {
+    const vrm = createVrm()
+
+    expect(getVrmMeshNodes(vrm).map(node => node.id)).not.toContain('vrm_interaction_head')
+    expect(setVrmMeshNodeVisibility(vrm, 'vrm_interaction_head', false)).toBe(false)
+
+    vrm.interactionCollider.visible = false
+    resetVrmMeshNodeVisibility(vrm)
+    expect(vrm.interactionCollider.visible).toBe(false)
   })
 
   it('toggles one mesh without touching the others', () => {

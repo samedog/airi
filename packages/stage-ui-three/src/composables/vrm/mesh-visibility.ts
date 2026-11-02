@@ -3,6 +3,8 @@ import type { Material } from 'three'
 
 import { Mesh } from 'three'
 
+import { isVrmInteractionColliderName } from './interaction'
+
 /** One mesh node that can be shown or hidden on a loaded VRM. */
 export interface VrmMeshNode {
   /** Stable node name; duplicate names get an ordinal suffix. */
@@ -31,7 +33,9 @@ function meshMaterialNames(material: Material | Material[] | undefined) {
 function isToggleableMesh(object: unknown): object is Mesh {
   if (!(object instanceof Mesh) || !object.geometry)
     return false
-  return !object.name.startsWith(SPRING_BONE_COLLIDER_PREFIX)
+  if (object.name.startsWith(SPRING_BONE_COLLIDER_PREFIX))
+    return false
+  return !isVrmInteractionColliderName(object.name)
 }
 
 /**
