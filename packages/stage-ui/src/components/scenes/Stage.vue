@@ -16,7 +16,7 @@ import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync
 import { normalizeActPayload, Playback } from '@proj-airi/pipelines-audio'
 import { presenceBubbleIdle, presenceBubbleThinking } from '@proj-airi/stage-shared'
 import { BEAT_SYNC_HIT_COOLDOWN_MS, BEAT_SYNC_HIT_THRESHOLD, getBeatSyncState, listenBeatSyncStateChange, listenBeatSyncVibeSignal } from '@proj-airi/stage-shared/beat-sync'
-import { selectVrmAnimationAssetId, selectVrmAnimationClipByEnergy, selectVrmAnimationEnergyTier, VRM_ANIMATION_ENERGY_INTENSE, VRM_ANIMATION_ENERGY_MEDIUM } from '@proj-airi/stage-shared/vrm-animations'
+import { selectVrmAnimationAssetId, selectVrmAnimationClipByEnergy, selectVrmAnimationEnergyTier, VRM_ANIMATION_ENERGY_INTENSE, VRM_ANIMATION_ENERGY_MEDIUM, vrmAnimationSlotFromMotion } from '@proj-airi/stage-shared/vrm-animations'
 import { createLive2D, Live2DScene, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { MMDScene } from '@proj-airi/stage-ui-mmd'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
@@ -645,8 +645,14 @@ async function playVrmEmotionAnimation(name: Emotion) {
 async function playVrmMotion(name: string, options: { loop?: boolean, repetitions?: number, fadeMs?: number, returnToIdle?: boolean } = {}) {
   const modelId = selectedAvatarModel.value?.displayModelId
   const asset = vrmAnimationsStore.findAnimationByName(name)
-  if (asset) {
-    const url = await vrmAnimationsStore.getAnimationUrl(asset.id)
+  let assetId = asset?.id
+  if (!assetId) {
+    const slot = vrmAnimationSlotFromMotion(name)
+    if (slot)
+      assetId = pickVrmSlotAssetId(slot)
+  }
+  if (assetId) {
+    const url = await vrmAnimationsStore.getAnimationUrl(assetId)
     if (selectedAvatarModel.value?.displayModelId !== modelId)
       return false
     if (url)

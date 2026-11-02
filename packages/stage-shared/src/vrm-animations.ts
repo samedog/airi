@@ -12,9 +12,19 @@ export const vrmAnimationSlots = [
   'awkward',
   'question',
   'curious',
+  'excited',
+  'talk_calm',
+  'talk_cheeky',
+  'talk_upset',
 ] as const
 
 export type VrmAnimationSlot = typeof vrmAnimationSlots[number]
+
+/** Resolves an ACT motion name to a bindable slot when it names one. */
+export function vrmAnimationSlotFromMotion(name: string): VrmAnimationSlot | undefined {
+  const normalized = name.trim().toLowerCase()
+  return vrmAnimationSlots.find(slot => slot === normalized)
+}
 
 /** Built-in energy tags offered by the animation settings UI. */
 export const VRM_ANIMATION_ENERGY_CALM = 0.2

@@ -7,6 +7,7 @@ import {
   selectVrmAnimationAssetId,
   selectVrmAnimationClipByEnergy,
   selectVrmAnimationEnergyTier,
+  vrmAnimationSlotFromMotion,
 } from './vrm-animations'
 
 describe('vrm animation bindings', () => {
@@ -69,6 +70,28 @@ describe('vrm animation bindings', () => {
   it('returns no asset for an empty slot', () => {
     expect(selectVrmAnimationAssetId({}, 'happy')).toBeUndefined()
     expect(selectVrmAnimationAssetId({ happy: [] }, 'happy')).toBeUndefined()
+  })
+
+  it('resolves bridge motion names to animation slots', () => {
+    expect(vrmAnimationSlotFromMotion(' talk_calm ')).toBe('talk_calm')
+    expect(vrmAnimationSlotFromMotion('talk_cheeky')).toBe('talk_cheeky')
+    expect(vrmAnimationSlotFromMotion('talk_upset')).toBe('talk_upset')
+    expect(vrmAnimationSlotFromMotion('excited')).toBe('excited')
+    expect(vrmAnimationSlotFromMotion('not_a_motion')).toBeUndefined()
+  })
+
+  it('selects clips bound to semantic motion slots', () => {
+    const bindings = {
+      excited: ['excited-a'],
+      talk_calm: ['calm-a'],
+      talk_cheeky: ['cheeky-a'],
+      talk_upset: ['upset-a'],
+    }
+
+    expect(selectVrmAnimationAssetId(bindings, 'excited')).toBe('excited-a')
+    expect(selectVrmAnimationAssetId(bindings, 'talk_calm')).toBe('calm-a')
+    expect(selectVrmAnimationAssetId(bindings, 'talk_cheeky')).toBe('cheeky-a')
+    expect(selectVrmAnimationAssetId(bindings, 'talk_upset')).toBe('upset-a')
   })
 
   it('always returns the only bound asset', () => {

@@ -2767,6 +2767,10 @@ vrm:
       awkward: Awkward
       question: Question
       curious: Curious
+      excited: Excited
+      talk_calm: Talk calm
+      talk_cheeky: Talk cheeky
+      talk_upset: Talk upset
   fps:
     title: Frame rate limit
     description: Limit VRM rendering in the stage and model preview. Lower limits reduce GPU use without changing animation speed.
