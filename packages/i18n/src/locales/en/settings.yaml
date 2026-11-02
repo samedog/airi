@@ -2738,7 +2738,8 @@ vrm:
     import: Import .vrma
     open-folder: Open animations folder
     refresh: Refresh
-    library: Imported animations
+    library: Manage imported animations
+    library-description: Import, preview, and delete .vrma files.
     preview: Preview
     stop: Stop
     delete: Delete

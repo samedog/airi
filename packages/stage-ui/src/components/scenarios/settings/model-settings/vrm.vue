@@ -434,21 +434,21 @@ const envOptions = computed(() => [
             :key="group.key"
             class="flex flex-col gap-2"
           >
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            <h3 class="text-xs text-neutral-500 font-semibold tracking-wide uppercase dark:text-neutral-400">
               {{ group.label }}
             </h3>
             <div :class="group.columns === 2 ? 'grid gap-2 sm:grid-cols-2' : 'flex flex-col gap-2'">
               <div
                 v-for="slot in group.slots"
                 :key="slot.slot"
-                class="rounded-xl border-2 border-neutral-200 px-3 py-2 dark:border-neutral-800"
+                class="border-2 border-neutral-200 rounded-xl px-3 py-2 dark:border-neutral-800"
               >
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <span class="text-sm font-medium">{{ slot.label }}</span>
                   <select
                     value=""
                     :aria-label="`${slot.label}: ${t('settings.vrm.animation.add')}`"
-                    class="h-8 w-32 min-w-0 shrink-0 rounded-lg border border-neutral-300 bg-white px-2 text-xs text-neutral-700 outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+                    class="h-8 min-w-0 w-32 shrink-0 border border-neutral-300 rounded-lg bg-white px-2 text-xs text-neutral-700 outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
                     @change="onVrmAnimationAdd(slot.slot, $event)"
                   >
                     <option value="">
@@ -467,14 +467,14 @@ const envOptions = computed(() => [
                   <span
                     v-for="clip in vrmAnimationClips(slot.slot)"
                     :key="clip.id"
-                    class="inline-flex max-w-full items-center gap-1 rounded-full border-2 border-neutral-200 bg-neutral-50 py-1 pl-2.5 pr-1 text-xs text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+                    class="max-w-full inline-flex items-center gap-1 border-2 border-neutral-200 rounded-full bg-neutral-50 py-1 pl-2.5 pr-1 text-xs text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
                   >
                     <span class="min-w-0 truncate">{{ vrmAnimationLabel(clip.id) }}</span>
                     <select
                       v-if="slot.slot === 'dance'"
                       :value="vrmAnimationEnergy(slot.slot, clip.id)?.toString() ?? ''"
                       :aria-label="t('settings.vrm.animation.energy')"
-                      class="h-6 shrink-0 rounded-md border border-neutral-300 bg-white px-1 text-xs text-neutral-600 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                      class="h-6 shrink-0 border border-neutral-300 rounded-md bg-white px-1 text-xs text-neutral-600 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
                       @change="onVrmAnimationEnergyChange(slot.slot, clip.id, $event)"
                     >
                       <option value="">{{ t('settings.vrm.animation.energy-auto') }}</option>
@@ -486,7 +486,7 @@ const envOptions = computed(() => [
                       type="button"
                       :title="t('settings.vrm.animation.remove')"
                       :aria-label="t('settings.vrm.animation.remove')"
-                      class="flex size-4 shrink-0 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                      class="size-4 flex shrink-0 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-200 dark:text-neutral-400 hover:text-neutral-800 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
                       @click.stop.prevent="removeVrmAnimationBinding(slot.slot, clip.id)"
                     >
                       ×
@@ -507,28 +507,40 @@ const envOptions = computed(() => [
             </div>
           </section>
         </div>
-        <section class="mt-5 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+        <section class="mt-5 border-2 border-neutral-200 rounded-xl bg-neutral-50/70 dark:border-neutral-800 dark:bg-neutral-900/40">
           <button
             type="button"
             :aria-expanded="vrmAnimationLibraryOpen"
-            class="flex w-full items-center gap-2 text-left"
+            class="w-full flex items-center gap-3 px-3 py-3 text-left"
             @click="vrmAnimationLibraryOpen = !vrmAnimationLibraryOpen"
           >
-            <span class="text-sm font-medium">{{ t('settings.vrm.animation.library') }}</span>
-            <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-              {{ vrmAnimationAssets.length }}
+            <span class="size-9 flex shrink-0 items-center justify-center rounded-lg bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-300">
+              <span class="i-solar:folder-with-files-bold-duotone text-lg" aria-hidden="true" />
             </span>
-            <span class="ml-auto text-neutral-500 dark:text-neutral-400">
-              {{ vrmAnimationLibraryOpen ? '−' : '+' }}
+            <span class="min-w-0 flex-1">
+              <span class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-medium">{{ t('settings.vrm.animation.library') }}</span>
+                <span class="border border-neutral-200 rounded-full bg-white px-2 py-0.5 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                  {{ vrmAnimationAssets.length }}
+                </span>
+              </span>
+              <span class="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">
+                {{ t('settings.vrm.animation.library-description') }}
+              </span>
             </span>
+            <span
+              class="i-solar:alt-arrow-down-linear shrink-0 text-lg text-neutral-500 transition-transform duration-200 dark:text-neutral-400"
+              :class="vrmAnimationLibraryOpen ? 'rotate-180' : ''"
+              aria-hidden="true"
+            />
           </button>
-          <div v-if="vrmAnimationLibraryOpen" class="mt-3 flex flex-col gap-2">
+          <div v-if="vrmAnimationLibraryOpen" class="flex flex-col gap-2 border-t border-neutral-200 px-3 pb-3 pt-3 dark:border-neutral-800">
             <input
               v-if="vrmAnimationAssets.length > 8"
               v-model="vrmAnimationLibraryQuery"
               type="search"
               :placeholder="t('settings.vrm.animation.search-placeholder')"
-              class="h-9 w-full rounded-xl border-2 border-neutral-200 bg-white px-3 text-sm text-neutral-700 outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+              class="h-9 w-full border-2 border-neutral-200 rounded-xl bg-white px-3 text-sm text-neutral-700 outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
             >
             <p v-if="vrmAnimationAssets.length === 0" class="text-xs text-neutral-500 dark:text-neutral-400">
               {{ t('settings.vrm.animation.empty') }}
@@ -540,11 +552,15 @@ const envOptions = computed(() => [
               <div
                 v-for="asset in filteredVrmAnimationAssets"
                 :key="asset.id"
-                class="flex items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800"
+                class="flex items-center gap-3 border border-neutral-200 rounded-lg px-3 py-2 dark:border-neutral-800"
               >
                 <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm">{{ asset.name }}</div>
-                  <div class="text-xs text-neutral-500 dark:text-neutral-400">{{ formatAnimationSize(asset.size) }}</div>
+                  <div class="truncate text-sm">
+                    {{ asset.name }}
+                  </div>
+                  <div class="text-xs text-neutral-500 dark:text-neutral-400">
+                    {{ formatAnimationSize(asset.size) }}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -571,11 +587,11 @@ const envOptions = computed(() => [
                 <details class="relative shrink-0">
                   <summary
                     :aria-label="t('settings.vrm.animation.actions')"
-                    class="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                    class="size-8 flex cursor-pointer list-none items-center justify-center border border-neutral-200 rounded-lg text-neutral-600 dark:border-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
                     ⋯
                   </summary>
-                  <div class="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border-2 border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+                  <div class="absolute right-0 z-20 mt-1 w-44 overflow-hidden border-2 border-neutral-200 rounded-xl bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
                     <button
                       type="button"
                       class="block w-full px-3 py-2 text-left text-xs text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
