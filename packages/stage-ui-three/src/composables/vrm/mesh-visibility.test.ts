@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   applyVrmMeshNodeVisibility,
+  getVrmMeshCategory,
   getVrmMeshNodes,
   resetVrmMeshNodeVisibility,
   setVrmMeshNodeVisibility,
@@ -36,8 +37,10 @@ function createVrm() {
   const duplicateB = mesh('Extra', 'Extra B')
   const collider = mesh('VRMC_springBone_collider_Body', 'Collider')
   const interactionCollider = mesh('vrm_interaction_head', 'Interaction')
+  const hair = mesh('U_Hair_3.001', 'Hair')
+  const accessories = mesh('U_Accessories_2.001', 'Accessories')
 
-  scene.add(body, jacket, duplicateA, duplicateB, collider, interactionCollider)
+  scene.add(body, jacket, duplicateA, duplicateB, collider, interactionCollider, hair, accessories)
   return {
     scene,
     body,
@@ -46,6 +49,8 @@ function createVrm() {
     duplicateB,
     collider,
     interactionCollider,
+    hair,
+    accessories,
   } as unknown as VRM & {
     body: Mesh
     jacket: Mesh
@@ -53,6 +58,8 @@ function createVrm() {
     duplicateB: Mesh
     collider: Mesh
     interactionCollider: Mesh
+    hair: Mesh
+    accessories: Mesh
   }
 }
 
@@ -65,9 +72,30 @@ describe('vrm mesh visibility', () => {
       'QuantumHacker_Suit.001',
       'Extra',
       'Extra#1',
+      'U_Hair_3.001',
+      'U_Accessories_2.001',
     ])
     expect(getVrmMeshNodes(vrm)[0].materialNames).toEqual(['Skin'])
     expect(getVrmMeshNodes(vrm)[0].vertexCount).toBe(3)
+  })
+
+  it('classifies body, outfit, and accessory meshes by name or material', () => {
+    const vrm = createVrm()
+    const categories = Object.fromEntries(
+      getVrmMeshNodes(vrm).map(node => [node.id, node.category]),
+    )
+
+    expect(categories).toMatchObject({
+      'BaseMesh_BODY.001': 'body',
+      'QuantumHacker_Suit.001': 'outfit',
+      'Extra': 'outfit',
+      'U_Hair_3.001': 'body',
+      'U_Accessories_2.001': 'accessories',
+    })
+    expect(getVrmMeshCategory('mesh_0', ['Skin'])).toBe('body')
+    expect(getVrmMeshCategory('mesh_1', ['Suit'])).toBe('outfit')
+    expect(getVrmMeshCategory('QuantumHacker_Suit_jacket')).toBe('outfit')
+    expect(getVrmMeshCategory('U_Accessories_2.001')).toBe('accessories')
   })
 
   it('ignores invisible interaction raycaster colliders', () => {

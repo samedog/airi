@@ -2728,6 +2728,20 @@ theme:
 title: Settings
 voices: Voice
 vrm:
+  model-parts:
+    title: Model parts
+    choose-category: Choose a category
+    choose-part: Choose a part
+    reset: Reset
+    reset-all: Reset all parts
+    back: Back
+    close: Close model parts
+    empty-category: No parts in this category yet
+    categories:
+      body: Body
+      outfit: Outfit
+      accessories: Accessories
+      extras: Extras
   tabs:
     model: Model
     animations: Animations
