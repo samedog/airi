@@ -169,6 +169,7 @@ const ACCESSORY_TOKENS = new Set([
 function tokenize(value: string) {
   return value
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/gi, '$1 $2')
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean)

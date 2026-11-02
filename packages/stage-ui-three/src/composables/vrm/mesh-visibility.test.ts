@@ -98,6 +98,14 @@ describe('vrm mesh visibility', () => {
     expect(getVrmMeshCategory('U_Accessories_2.001')).toBe('accessories')
   })
 
+  it('keeps name keywords after three.js strips dots from exported node names', () => {
+    expect(getVrmMeshCategory('BaseMesh_EYEBROWS001', ['U_BaseMesh_Secondary002'])).toBe('body')
+    expect(getVrmMeshCategory('BaseMesh_BODY001', ['U_Skin002'])).toBe('body')
+    expect(getVrmMeshCategory('U_Eyes_1001', ['U_EyeColor_1001'])).toBe('body')
+    expect(getVrmMeshCategory('QuantumHacker_Suit001', ['QuantumHacker_Suit001'])).toBe('outfit')
+    expect(getVrmMeshCategory('QuantumHacker_Suitjacket', ['QuantumHacker_Suit001'])).toBe('outfit')
+  })
+
   it('ignores invisible interaction raycaster colliders', () => {
     const vrm = createVrm()
 

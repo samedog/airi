@@ -126,17 +126,6 @@ useEventListener(window, 'keydown', onKeydown)
         @click="emit('close')"
       />
 
-      <button
-        v-if="activeCategory"
-        type="button"
-        class="absolute left-4 top-4 z-10 size-9 flex items-center justify-center rounded-full bg-white/90 text-neutral-600 shadow-lg dark:bg-neutral-800/90 hover:bg-white dark:text-neutral-300"
-        :title="t('settings.vrm.model-parts.back')"
-        :aria-label="t('settings.vrm.model-parts.back')"
-        @click.stop="back"
-      >
-        <span class="i-solar:alt-arrow-left-bold-duotone text-lg" aria-hidden="true" />
-      </button>
-
       <div
         class="pointer-events-none absolute inset-x-0 top-4 z-10 flex flex-col items-center gap-1 px-16 text-center"
       >
