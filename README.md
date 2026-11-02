@@ -17,7 +17,8 @@
 > [!NOTE]
 > This is **samedog's WF/AIRI fork**, a Linux/Wayland-focused build of Project AIRI.
 > It carries a focused custom patch set on the fork's `main` branch, based on upstream `v0.13.1`
-> commit `335f6cac7`. Upstream has moved on; this fork does not merge upstream automatically.
+> commit `335f6cac7`, with a deliberate local sync against upstream `main` at `7ab1ecae4`
+> (2026-11-01). Upstream is not merged into `main` until the sync branch is reviewed and accepted.
 >
 > The Linux-only feature is Beat Sync system audio capture through `parec` and PipeWire/PulseAudio.
 > It records a selected monitor source instead of using screen-capture loopback.
@@ -54,7 +55,7 @@
 
 <p float="left" align="center">
   <!-- readme-section:release-binary-windows -->
-  <a href="https://github.com/moeru-ai/airi/releases/download/v0.13.1/AIRI-0.13.1-windows-x64-setup.exe">
+  <a href="https://github.com/moeru-ai/airi/releases/download/v0.14.1/AIRI-0.14.1-windows-x64-setup.exe">
     <picture>
       <source
         width="33%"
@@ -70,7 +71,7 @@
     </picture>
   </a>
   <!-- readme-section:release-binary-macos -->
-  <a href="https://github.com/moeru-ai/airi/releases/download/v0.13.1/AIRI-0.13.1-darwin-arm64.dmg">
+  <a href="https://github.com/moeru-ai/airi/releases/download/v0.14.1/AIRI-0.14.1-darwin-arm64.dmg">
     <picture>
       <source
         width="33%"

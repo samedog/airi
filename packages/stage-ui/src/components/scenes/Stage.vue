@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
-import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
 import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
 import type { VrmInteractionTarget } from '@proj-airi/stage-ui-three'
@@ -17,7 +16,7 @@ import { normalizeActPayload, Playback } from '@proj-airi/pipelines-audio'
 import { presenceBubbleIdle, presenceBubbleThinking } from '@proj-airi/stage-shared'
 import { BEAT_SYNC_HIT_COOLDOWN_MS, BEAT_SYNC_HIT_THRESHOLD, getBeatSyncState, listenBeatSyncStateChange, listenBeatSyncVibeSignal } from '@proj-airi/stage-shared/beat-sync'
 import { selectVrmAnimationAssetId, selectVrmAnimationClipByEnergy, selectVrmAnimationEnergyTier, VRM_ANIMATION_ENERGY_INTENSE, VRM_ANIMATION_ENERGY_MEDIUM } from '@proj-airi/stage-shared/vrm-animations'
-import { createLive2D, defaultLive2DMotionControlDynamics, Live2DScene, useLive2DMotionControl, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
+import { createLive2D, Live2DScene, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { MMDScene } from '@proj-airi/stage-ui-mmd'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
 import { TachieScene } from '@proj-airi/stage-ui-tachie'
@@ -35,15 +34,17 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
 import StageAvatarModelMissing from './stage-avatar-model-missing.vue'
 import StageRenderError from './stage-render-error.vue'
 
-import { clampBeatSyncHitWindow, dancePulseRate, dancePulseTargetSpeed } from '../../constants/beat-sync-pulse'
 // import { useDuckDb } from '../../composables/use-duck-db'
+import { clampBeatSyncHitWindow, dancePulseRate, dancePulseTargetSpeed } from '../../constants/beat-sync-pulse'
 import { Emotion, EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
-import { live2dMotionMagicProfiles, useLive2DMotionMagic, useLive2DMotionMagicSettings } from '../../features/motions/live2d'
+import { useLive2DStageMotionMagic } from '../../features/motions/live2d/use-live2d-stage-motion-magic'
+import { createAvatarTouchAggregator } from '../../libs/avatar-touch/notify'
 import { syncedRoles, usePiniaSynced } from '../../libs/pinia/synced-context'
 import { getSpeechBusContext, speechOutputGetPlaybackState, speechOutputPlaybackStateChangedEvent } from '../../services/speech/bus'
 import { useLlmStreamingControlStore } from '../../stores/ai/chat-llm/streaming-control'
 import { useAudioContext, useSpeakingStore } from '../../stores/audio'
 import { useBackgroundStore } from '../../stores/background'
+import { useAvatarTouchStore } from '../../stores/character/avatar-touch'
 import { useChatStore } from '../../stores/chat'
 import { useChatSessionStore } from '../../stores/chat/session-store'
 import { useSharedLive2DExpressionPreview } from '../../stores/live2d'
@@ -104,8 +105,6 @@ const tachieSceneRef = ref<InstanceType<typeof TachieScene>>()
 const mmdSceneRef = ref<InstanceType<typeof MMDScene>>()
 
 const settingsStore = useSettings()
-const beatSyncSettings = useSettingsBeatSync()
-const { dancePulseHits } = storeToRefs(beatSyncSettings)
 const {
   stageModelRenderer,
   stageViewControlsEnabled,
@@ -121,49 +120,9 @@ const {
   live2dMaxFps,
   live2dRenderScale,
 } = storeToRefs(useSettingsLive2d())
-const live2dMotionControl = useLive2DMotionControl()
-const { exclusiveOwnerId: live2dMotionControlOwnerId } = storeToRefs(live2dMotionControl)
-const {
-  forceViewTarget: live2dMagicForceViewTarget,
-  profileId: live2dMagicProfileId,
-  skipMouthOpen: live2dMagicSkipMouthOpen,
-} = storeToRefs(useLive2DMotionMagicSettings())
-const live2dMagicMotion = useLive2DMotionMagic({
-  dataset: () => live2dMotionMagicProfiles[live2dMagicProfileId.value].dataset,
-  forceViewTarget: live2dMagicForceViewTarget,
-  skipMouthOpen: live2dMagicSkipMouthOpen,
-  disabled: () => live2dMotionControlOwnerId.value !== null,
-  publishPose: pose => live2dMotionControl.setPose('stage:live2d-motion-magic', pose, defaultLive2DMotionControlDynamics),
-  releasePose: () => live2dMotionControl.release('stage:live2d-motion-magic'),
+useLive2DStageMotionMagic({
+  active: () => stageModelRenderer.value === 'live2d' && live2dMotionDriver.value === 'magic' && !props.paused,
 })
-let live2dMagicActivationRequest = 0
-
-watch(
-  [stageModelRenderer, live2dMotionDriver, live2dMagicProfileId, () => props.paused, live2dMotionControlOwnerId],
-  async ([renderer, driver, , paused, controlOwnerId]) => {
-    const request = ++live2dMagicActivationRequest
-    if (renderer !== 'live2d' || driver !== 'magic' || paused || controlOwnerId !== null) {
-      live2dMagicMotion.stop()
-      return
-    }
-
-    if (live2dMagicMotion.status.value === 'idle')
-      await live2dMagicMotion.initialize()
-
-    if (
-      request !== live2dMagicActivationRequest
-      || stageModelRenderer.value !== 'live2d'
-      || live2dMotionDriver.value !== 'magic'
-      || props.paused
-      || live2dMotionControlOwnerId.value !== null
-    ) {
-      return
-    }
-
-    live2dMagicMotion.start()
-  },
-  { immediate: true },
-)
 const {
   spinePremultipliedAlpha,
   spineDefaultMixDuration,
@@ -221,7 +180,6 @@ watch(speechVoicing, (voicing) => {
     vrmViewerRef.value?.stopGesture(450)
 })
 const { audioContext } = useAudioContext()
-const currentAudioSource = ref<AudioBufferSourceNode>()
 const speechOutputControlStore = useSpeechOutputControlStore()
 const { speechMuted, speechVolume } = storeToRefs(speechOutputControlStore)
 const lastVrmInteractionAt = new Map<VrmInteractionTarget, number>()
@@ -329,6 +287,8 @@ function resetAssistantSpeechSurface(source: string) {
 }
 
 const { activeCardId: selectedCharacterId, activeCard, selectedAvatarModel, ready: cardsReady } = storeToRefs(useAiriCardStore())
+const beatSyncSettings = useSettingsBeatSync()
+const { dancePulseHits } = storeToRefs(beatSyncSettings)
 const vrmAnimationsStore = useVrmAnimationsStore()
 const storedVrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   const avatarModel = selectedAvatarModel.value
@@ -883,139 +843,56 @@ async function playSpecialToken(
     streamId: options?.streamId,
   })
 }
-const lipSyncNode = ref<AudioNode>()
+let disconnectLipSync: (() => void) | undefined
+let disconnectAnalyser: (() => void) | undefined
 
 const voice = useVoiceStore()
-// Analysis taps (Live2D lip sync, spectrum analyser) read from speechAnalysis,
-// before the user volume. A low playback volume must not change mouth or
-// analyser behavior; VRM and MMD already read the source node directly.
-const speechAnalysis = audioContext.createGain()
+const avatarTouch = useAvatarTouchStore()
+// A burst of touches on the avatar becomes one notification for the character.
+// The avatar already plays its own reaction, so a skipped notification still shows the touch.
+const avatarTouchAggregator = createAvatarTouchAggregator({
+  onSummary: (summary) => {
+    // A reply in progress keeps the floor. A notification reply would play over it.
+    if (voice.activeTurns.length > 0)
+      return
+    void avatarTouch.notifyTouch(summary).catch(error => console.error('Avatar touch notification failed', error))
+  },
+})
+// Lip sync and the spectrum analyser connect to the playback through voice output plugins.
+// The playback connects them before this volume, so a low volume does not change the mouth or the analyser.
 const speechDestination = audioContext.createGain()
-speechAnalysis.connect(speechDestination)
 speechDestination.connect(audioContext.destination)
+/** Connects a renderer node, for example the VRM or MMD lip sync worklet, to the played speech. */
+const connectSpeech = (node: AudioNode) => voice.connectSpeechNode(node)
 // setTargetAtTime smooths slider drags into the gain, so volume changes do not click.
 watch(speechVolume, (volume) => {
   speechDestination.gain.setTargetAtTime(volume, audioContext.currentTime, 0.05)
 }, { immediate: true })
-const playback = new Playback(new BrowserPlayback(audioContext, {
-  destination: speechAnalysis,
-  onSource: (source) => { currentAudioSource.value = source },
-}))
-
-/**
- * Every VoiceResponse opens its own playback group, and OutputGroup queues are
- * independent. Gate each group's first clip on the previous group draining so
- * chat replies and spark notifications queue instead of talking over each other.
- */
-function createSerializedPlayback(inner: AudioPlayback): AudioPlayback {
-  let gate: Promise<void> = Promise.resolve()
-
-  return {
-    nowMs: () => inner.nowMs(),
-    openGroup(label: string) {
-      const group = inner.openGroup(label)
-      let acquired = false
-      let released = false
-      let releaseGate: (() => void) | undefined
-
-      const release = () => {
-        if (released)
-          return
-        released = true
-        releaseGate?.()
-      }
-
-      return {
-        id: group.id,
-        label: group.label,
-        async enqueue(clip: PlaybackClip) {
-          if (!acquired && !released) {
-            acquired = true
-            const previous = gate
-            gate = new Promise<void>((resolve) => {
-              releaseGate = resolve
-            })
-            await previous
-          }
-          return group.enqueue(clip)
-        },
-        async finish() {
-          try {
-            return await group.finish()
-          }
-          finally {
-            release()
-          }
-        },
-        async stop(options: { fadeMs: number }) {
-          try {
-            return await group.stop(options)
-          }
-          finally {
-            release()
-          }
-        },
-      }
-    },
-  }
-}
-
-const serializedPlayback = createSerializedPlayback(playback)
-const pendingSpecials = new Map<string, string[]>()
-const startedSpeechTurns = new Set<string>()
+const playback = new Playback(new BrowserPlayback(audioContext, { destination: speechDestination }))
 let playingCount = 0
 
 function resetSpeakingState() {
   nowSpeaking.value = false
   mouthOpenSize.value = 0
-  // Drop the last source reference so VRM/MMD lip-sync nodes disconnect and
-  // zero their viseme weights instead of holding the last mouth shape.
-  currentAudioSource.value = undefined
 }
 
 // A response leaves the active turns after its playback drains, or at once
 // when it is canceled or interrupted.
 watch(() => voice.activeTurns, (turns) => {
-  if (turns.length === 0) {
+  if (turns.length === 0)
     speechVoicing.value = false
-    // A canceled or failed turn can skip its playback-end callback. Reset the
-    // whole speech state so a stale playingCount cannot leave the mouth open
-    // or keep a looping emotion gesture alive forever.
-    playingCount = 0
-    pendingSpecials.clear()
-    startedSpeechTurns.clear()
-    resetSpeakingState()
-  }
 })
 
 const cards = useAiriCardStore()
 const disconnectVoiceOutput = voice.connectOutput((turn) => {
   const output = {
-    playback: serializedPlayback,
-    onSpecial: (special: string) => {
-      // ACT tokens stream with the text, well before TTS synthesis finishes.
-      // Hold them until this turn's first audio actually starts so the gesture
-      // and the voice begin together. Later tokens follow the next sentence.
-      if (startedSpeechTurns.has(turn.turnId)) {
-        void playSpecialToken(special, { turnId: turn.turnId })
-        return
-      }
-      const pending = pendingSpecials.get(turn.turnId) ?? []
-      pending.push(special)
-      pendingSpecials.set(turn.turnId, pending)
-    },
+    playback,
+    onSpecial: (special: string) => void playSpecialToken(special, { turnId: turn.turnId }),
     onPlaybackStart: ({ text }: { text: string }) => {
       playingCount += 1
       nowSpeaking.value = true
       speechVoicing.value = true
       assistantCaption.value += ` ${text}`
-      startedSpeechTurns.add(turn.turnId)
-      const pending = pendingSpecials.get(turn.turnId)
-      if (pending?.length) {
-        pendingSpecials.delete(turn.turnId)
-        for (const special of pending)
-          void playSpecialToken(special, { turnId: turn.turnId })
-      }
       try {
         postCaption({ type: 'caption-assistant', text })
         postPresent({ type: 'assistant-append', text })
@@ -1025,12 +902,9 @@ const disconnectVoiceOutput = voice.connectOutput((turn) => {
       }
     },
     onPlaybackEnd: () => {
-      playingCount = Math.max(0, playingCount - 1)
-      if (playingCount === 0) {
-        pendingSpecials.delete(turn.turnId)
-        startedSpeechTurns.delete(turn.turnId)
+      playingCount -= 1
+      if (playingCount === 0)
         resetSpeakingState()
-      }
     },
   }
   if (speechMuted.value)
@@ -1046,7 +920,7 @@ const disconnectVoiceOutput = voice.connectOutput((turn) => {
     console.error('Speech output is unavailable', error)
     return { ...output, synthesize: async () => null }
   }
-})
+}, playback)
 
 function startLipSyncLoop() {
   if (lipSyncLoopId.value)
@@ -1077,14 +951,8 @@ function stopLipSyncLoop() {
 function resetLive2dLipSync() {
   stopLipSyncLoop()
 
-  try {
-    lipSyncNode.value?.disconnect()
-  }
-  catch {
-
-  }
-
-  lipSyncNode.value = undefined
+  disconnectLipSync?.()
+  disconnectLipSync = undefined
   live2dLipSync.value = undefined
   lipSyncStarted.value = false
 }
@@ -1110,8 +978,7 @@ async function setupLipSync() {
   try {
     const lipSync = await createLive2DLipSync(audioContext, wlipsyncProfile as Profile, live2dLipSyncOptions)
     live2dLipSync.value = lipSync
-    lipSyncNode.value = lipSync.node
-    speechAnalysis.connect(lipSync.node)
+    disconnectLipSync = connectSpeech(lipSync.node)
     await audioContext.resume()
     lipSyncStarted.value = true
     syncLipSyncLoop()
@@ -1125,7 +992,7 @@ async function setupLipSync() {
 function setupAnalyser() {
   if (!audioAnalyser.value) {
     audioAnalyser.value = audioContext.createAnalyser()
-    speechAnalysis.connect(audioAnalyser.value)
+    disconnectAnalyser = connectSpeech(audioAnalyser.value)
   }
 }
 
@@ -1262,18 +1129,17 @@ onUnmounted(() => {
   }
   clearSpeechMotionWatchdog()
   clearActExpressionTimer()
-  pendingSpecials.clear()
-  startedSpeechTurns.clear()
+  avatarTouchAggregator.dispose()
   live2d.dispose()
   disposePlaybackStateHandler()
   resetLive2dLipSync()
+  disconnectAnalyser?.()
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())
   disposeBeatSyncState?.()
   disposeBeatSyncVibe?.()
   disconnectVoiceOutput()
   releaseSpeechPlayerRole()
-  speechAnalysis.disconnect()
   speechDestination.disconnect()
 })
 
@@ -1331,6 +1197,7 @@ defineExpose({
         :live2d-max-fps="live2dMaxFps"
         :live2d-render-scale="live2dRenderScale"
         @error="handleStageRenderError"
+        @touch="avatarTouchAggregator.record"
       />
       <ThreeScene
         v-if="stageModelRenderer === 'vrm' && showStage"
@@ -1348,10 +1215,10 @@ defineExpose({
         :show-axes="stageViewControlsEnabled"
         :enable-orbit-controls="props.enableOrbitControls"
         :audio-context="audioContext"
-        :current-audio-source="currentAudioSource"
+        :connect-speech="connectSpeech"
         @error="reportStageRenderError"
-        @vrm-interact="onVRMInteract"
         @idle-animation-looped="onVrmIdleAnimationLooped"
+        @vrm-interact="onVRMInteract"
       />
       <SpineScene
         v-if="stageModelRenderer === 'spine' && showStage"
@@ -1397,7 +1264,7 @@ defineExpose({
         :cursor-position="cursorPosition"
         :enable-orbit-controls="props.enableOrbitControls"
         :audio-context="audioContext"
-        :current-audio-source="currentAudioSource"
+        :connect-speech="connectSpeech"
         @error="reportStageRenderError"
       />
       <div

@@ -123,6 +123,7 @@ const onboardingExtraSteps = computed(() => {
 
 watch(settings.language, () => {
   i18n.locale.value = settings.language.value
+  document.documentElement.lang = i18n.locale.value
 })
 
 watch(settings.themeColorsHue, () => {
@@ -236,8 +237,7 @@ function openOnboardingAfterStartup() {
       :scale-background="false"
       :instant-open="startupOnboarding"
       :extra-steps="onboardingExtraSteps"
-      @configured="onboardingStore.markSetupCompleted()"
-      @skipped="onboardingStore.markSetupSkipped()"
+      @configured="showingSetup = false"
     />
 
     <PerformanceOverlay />

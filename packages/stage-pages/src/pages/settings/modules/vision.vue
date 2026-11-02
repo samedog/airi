@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { Alert, ErrorContainer, RadioCardManySelect, RadioCardSimple } from '@proj-airi/stage-ui/components'
+import { RadioCardManySelect, RadioCardSimple } from '@proj-airi/stage-ui/components'
 import { useAnalytics } from '@proj-airi/stage-ui/composables'
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
 import { useVisionActivityStore, useVisionProcessingStore, useVisionStore } from '@proj-airi/stage-ui/stores/modules/vision'
 import { useProviderConfigStore } from '@proj-airi/stage-ui/stores/providers/config'
 import { useProviderStore } from '@proj-airi/stage-ui/stores/providers/provider'
-import { FieldCheckbox, FieldRange, SettingsCard } from '@proj-airi/ui'
+import { Alert, FieldCheckbox, FieldRange, SettingsCard } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -213,10 +213,10 @@ function formatRelativeTime(timestamp: number | null) {
                 'transition',
                 'duration-200',
                 'ease-in-out',
-                'hover:border-primary-500/30',
+                'hover:bg-neutral-50',
                 'dark:border-neutral-900',
                 'dark:bg-neutral-900/20',
-                'dark:hover:border-primary-400/30',
+                'dark:hover:bg-neutral-900/50',
                 'flex',
                 'items-center',
                 'justify-center',
@@ -237,15 +237,11 @@ function formatRelativeTime(timestamp: number | null) {
                 'items-center',
                 'gap-3',
                 'rounded-lg',
-                'border-2',
-                'border-dashed',
-                'border-neutral-200',
                 'bg-neutral-50',
                 'p-4',
                 'transition',
                 'duration-200',
                 'ease-in-out',
-                'dark:border-neutral-800',
                 'dark:bg-neutral-800',
               ]"
             >
@@ -283,22 +279,20 @@ function formatRelativeTime(timestamp: number | null) {
           <span>{{ t('settings.pages.modules.consciousness.sections.section.provider-model-selection.loading') }}</span>
         </div>
 
-        <ErrorContainer
+        <Alert
           v-else-if="activeProviderModelError"
+          tone="danger"
           :title="t('settings.pages.modules.consciousness.sections.section.provider-model-selection.error')"
-          :error="activeProviderModelError"
-        />
+        >
+          <pre :class="['whitespace-pre-wrap break-all']">{{ String(activeProviderModelError) }}</pre>
+        </Alert>
 
         <Alert
           v-else-if="providerModels.length === 0 && !isLoadingActiveProviderModels"
-          type="warning"
+          tone="warning"
+          :title="t('settings.pages.modules.consciousness.sections.section.provider-model-selection.no_models')"
         >
-          <template #title>
-            {{ t('settings.pages.modules.consciousness.sections.section.provider-model-selection.no_models') }}
-          </template>
-          <template #content>
-            {{ t('settings.pages.modules.consciousness.sections.section.provider-model-selection.no_models_description') }}
-          </template>
+          {{ t('settings.pages.modules.consciousness.sections.section.provider-model-selection.no_models_description') }}
         </Alert>
 
         <template v-else-if="providerModels.length > 0">
@@ -334,30 +328,9 @@ function formatRelativeTime(timestamp: number | null) {
           </div>
         </div>
 
-        <div
-          :class="[
-            'flex',
-            'items-center',
-            'gap-3',
-            'rounded-lg',
-            'border',
-            'border-primary-200',
-            'bg-primary-50',
-            'p-4',
-            'dark:border-primary-800',
-            'dark:bg-primary-900/20',
-          ]"
-        >
-          <div :class="['text-2xl', 'text-primary-500', 'dark:text-primary-400', 'i-solar:info-circle-line-duotone']" />
-          <div :class="['flex', 'flex-col']">
-            <span :class="['font-medium']">
-              {{ t('settings.pages.modules.consciousness.sections.section.provider-model-selection.not_supported') }}
-            </span>
-            <span :class="['text-sm', 'text-primary-600', 'dark:text-primary-400']">
-              {{ t('settings.pages.modules.consciousness.sections.section.provider-model-selection.not_supported_description') }}
-            </span>
-          </div>
-        </div>
+        <Alert tone="info" :title="t('settings.pages.modules.consciousness.sections.section.provider-model-selection.not_supported')">
+          {{ t('settings.pages.modules.consciousness.sections.section.provider-model-selection.not_supported_description') }}
+        </Alert>
 
         <div :class="['mt-2']">
           <label :class="['mb-1', 'block', 'text-sm', 'font-medium']">
@@ -406,7 +379,7 @@ function formatRelativeTime(timestamp: number | null) {
         />
 
         <div :class="['grid', 'gap-4', 'md:grid-cols-3']">
-          <div :class="['rounded-lg', 'border', 'border-neutral-200', 'bg-white', 'p-3', 'dark:border-neutral-800', 'dark:bg-neutral-900']">
+          <div :class="['rounded-lg p-3', 'bg-neutral-100/70 dark:bg-neutral-800/50']">
             <div :class="['text-xs', 'uppercase', 'tracking-wide', 'text-neutral-400']">
               {{ t('settings.pages.modules.vision.stats.captures') }}
             </div>
@@ -418,7 +391,7 @@ function formatRelativeTime(timestamp: number | null) {
             </div>
           </div>
 
-          <div :class="['rounded-lg', 'border', 'border-neutral-200', 'bg-white', 'p-3', 'dark:border-neutral-800', 'dark:bg-neutral-900']">
+          <div :class="['rounded-lg p-3', 'bg-neutral-100/70 dark:bg-neutral-800/50']">
             <div :class="['text-xs', 'uppercase', 'tracking-wide', 'text-neutral-400']">
               {{ t('settings.pages.modules.vision.stats.context-updates') }}
             </div>
@@ -430,7 +403,7 @@ function formatRelativeTime(timestamp: number | null) {
             </div>
           </div>
 
-          <div :class="['rounded-lg', 'border', 'border-neutral-200', 'bg-white', 'p-3', 'dark:border-neutral-800', 'dark:bg-neutral-900']">
+          <div :class="['rounded-lg p-3', 'bg-neutral-100/70 dark:bg-neutral-800/50']">
             <div :class="['text-xs', 'uppercase', 'tracking-wide', 'text-neutral-400']">
               {{ t('settings.pages.modules.vision.stats.inferences') }}
             </div>
@@ -442,7 +415,7 @@ function formatRelativeTime(timestamp: number | null) {
             </div>
           </div>
 
-          <div :class="['rounded-lg', 'border', 'border-neutral-200', 'bg-white', 'p-3', 'dark:border-neutral-800', 'dark:bg-neutral-900']">
+          <div :class="['rounded-lg p-3', 'bg-neutral-100/70 dark:bg-neutral-800/50']">
             <div :class="['text-xs', 'uppercase', 'tracking-wide', 'text-neutral-400']">
               {{ t('settings.pages.modules.vision.stats.failed-inferences') }}
             </div>
@@ -454,7 +427,7 @@ function formatRelativeTime(timestamp: number | null) {
             </div>
           </div>
 
-          <div :class="['rounded-lg', 'border', 'border-neutral-200', 'bg-white', 'p-3', 'dark:border-neutral-800', 'dark:bg-neutral-900']">
+          <div :class="['rounded-lg p-3', 'bg-neutral-100/70 dark:bg-neutral-800/50']">
             <div :class="['text-xs', 'uppercase', 'tracking-wide', 'text-neutral-400']">
               {{ t('settings.pages.modules.vision.stats.last-inference') }}
             </div>

@@ -93,6 +93,7 @@ const colors = computed(() => {
 
 watch(settings.language, () => {
   i18n.locale.value = settings.language.value
+  document.documentElement.lang = i18n.locale.value
 })
 
 watch(settings.themeColorsHue, () => {
@@ -202,8 +203,7 @@ const extraSteps = computed(() => [
       :scale-background="false"
       :instant-open="startupOnboarding"
       :extra-steps="extraSteps"
-      @configured="onboardingStore.markSetupCompleted()"
-      @skipped="onboardingStore.markSetupSkipped()"
+      @configured="showingSetup = false"
     />
   </StartupOverlay>
 </template>

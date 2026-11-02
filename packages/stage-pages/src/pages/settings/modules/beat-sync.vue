@@ -12,10 +12,9 @@ import {
   toggleBeatSync,
   updateBeatSyncVibeParameters,
 } from '@proj-airi/stage-shared/beat-sync'
-import { Alert } from '@proj-airi/stage-ui/components'
 import { MAX_BEAT_SYNC_HIT_WINDOW, MIN_BEAT_SYNC_HIT_WINDOW } from '@proj-airi/stage-ui/constants/beat-sync-pulse'
 import { useSettingsBeatSync } from '@proj-airi/stage-ui/stores/settings'
-import { Button, FieldRange, FieldSelect, SettingsCard } from '@proj-airi/ui'
+import { Alert, Button, FieldRange, FieldSelect, SettingsCard } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -178,26 +177,22 @@ onMounted(() => {
 
         <Alert
           v-if="audioSourceError"
-          type="error"
+          tone="danger"
         >
           <template #title>
             {{ t('settings.pages.modules.beat_sync.sections.audio_source.errors.list_failed') }}
           </template>
-          <template #content>
-            {{ audioSourceError }}
-          </template>
+          {{ audioSourceError }}
         </Alert>
 
         <Alert
           v-if="startError"
-          type="error"
+          tone="danger"
         >
           <template #title>
             {{ t('settings.pages.modules.beat_sync.sections.audio_source.errors.start_failed') }}
           </template>
-          <template #content>
-            {{ startError }}
-          </template>
+          {{ startError }}
         </Alert>
       </div>
     </SettingsCard>

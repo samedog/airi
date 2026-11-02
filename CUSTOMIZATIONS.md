@@ -12,12 +12,12 @@ artifacts, not the source of truth.
 - Upstream line at that base: `v0.13.1` plus three upstream commits
 - Current custom branch: `main`
 - Electron: upstream `43.8.4`
-- Last upstream comparison: 2026-11-01, `upstream/main` at `7ab1ecae4`; before this Beat Sync
-  change, the fork was intentionally 84 commits behind and 7 custom commits ahead.
+- Upstream sync branch: `code-rebase/upstream-main-2026-11-01`
+- Upstream merge target: `upstream/main` at `7ab1ecae4` (2026-11-01)
 
 The `v0.13.1` tag is a version reference only. It is not the base branch. The previous custom
-tree is preserved on `custom/wf-airi-v0.12`. Upstream is not merged automatically; the fork keeps
-its custom line until the update process below is run deliberately.
+tree is preserved on `custom/wf-airi-v0.12`. Upstream is merged deliberately on a sync branch;
+`main` remains the published fork branch until that sync branch is reviewed and accepted.
 
 ## Fork highlights
 
