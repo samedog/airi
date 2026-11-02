@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
+import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
 import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
 import type { VrmInteractionTarget } from '@proj-airi/stage-ui-three'
@@ -869,6 +870,68 @@ watch(speechVolume, (volume) => {
   speechDestination.gain.setTargetAtTime(volume, audioContext.currentTime, 0.05)
 }, { immediate: true })
 const playback = new Playback(new BrowserPlayback(audioContext, { destination: speechDestination }))
+
+/**
+ * Every VoiceResponse opens its own playback group. Gate each group's first
+ * clip on the previous group draining so replies and spark notifications queue
+ * instead of talking over each other.
+ */
+function createSerializedPlayback(inner: AudioPlayback): AudioPlayback {
+  let gate: Promise<void> = Promise.resolve()
+
+  return {
+    nowMs: () => inner.nowMs(),
+    openGroup(label: string) {
+      const group = inner.openGroup(label)
+      let acquired = false
+      let released = false
+      let releaseGate: (() => void) | undefined
+
+      const release = () => {
+        if (released)
+          return
+        released = true
+        releaseGate?.()
+      }
+
+      return {
+        id: group.id,
+        label: group.label,
+        async enqueue(clip: PlaybackClip) {
+          if (!acquired && !released) {
+            acquired = true
+            const previous = gate
+            gate = new Promise<void>((resolve) => {
+              releaseGate = resolve
+            })
+            await previous
+          }
+          return group.enqueue(clip)
+        },
+        async finish() {
+          try {
+            return await group.finish()
+          }
+          finally {
+            release()
+          }
+        },
+        async stop(options: { fadeMs: number }) {
+          try {
+            return await group.stop(options)
+          }
+          finally {
+            release()
+          }
+        },
+      }
+    },
+  }
+}
+
+const serializedPlayback = createSerializedPlayback(playback)
+const pendingSpecials = new Map<string, string[]>()
+const startedSpeechTurns = new Set<string>()
 let playingCount = 0
 
 function resetSpeakingState() {
@@ -879,20 +942,46 @@ function resetSpeakingState() {
 // A response leaves the active turns after its playback drains, or at once
 // when it is canceled or interrupted.
 watch(() => voice.activeTurns, (turns) => {
-  if (turns.length === 0)
+  if (turns.length === 0) {
     speechVoicing.value = false
+    // A cancelled or failed turn can skip its playback-end callback. Reset
+    // the whole speech state so a stale count cannot leave the mouth open
+    // or keep a looping emotion gesture alive.
+    playingCount = 0
+    pendingSpecials.clear()
+    startedSpeechTurns.clear()
+    resetSpeakingState()
+  }
 })
 
 const cards = useAiriCardStore()
 const disconnectVoiceOutput = voice.connectOutput((turn) => {
   const output = {
-    playback,
-    onSpecial: (special: string) => void playSpecialToken(special, { turnId: turn.turnId }),
+    playback: serializedPlayback,
+    onSpecial: (special: string) => {
+      // ACT tokens stream with the text, well before TTS synthesis finishes.
+      // Hold them until this turn's first audio starts so the gesture and the
+      // voice begin together. Later tokens follow the next sentence.
+      if (startedSpeechTurns.has(turn.turnId)) {
+        void playSpecialToken(special, { turnId: turn.turnId })
+        return
+      }
+      const pending = pendingSpecials.get(turn.turnId) ?? []
+      pending.push(special)
+      pendingSpecials.set(turn.turnId, pending)
+    },
     onPlaybackStart: ({ text }: { text: string }) => {
       playingCount += 1
       nowSpeaking.value = true
       speechVoicing.value = true
       assistantCaption.value += ` ${text}`
+      startedSpeechTurns.add(turn.turnId)
+      const pending = pendingSpecials.get(turn.turnId)
+      if (pending?.length) {
+        pendingSpecials.delete(turn.turnId)
+        for (const special of pending)
+          void playSpecialToken(special, { turnId: turn.turnId })
+      }
       try {
         postCaption({ type: 'caption-assistant', text })
         postPresent({ type: 'assistant-append', text })
@@ -902,9 +991,12 @@ const disconnectVoiceOutput = voice.connectOutput((turn) => {
       }
     },
     onPlaybackEnd: () => {
-      playingCount -= 1
-      if (playingCount === 0)
+      playingCount = Math.max(0, playingCount - 1)
+      if (playingCount === 0) {
+        pendingSpecials.delete(turn.turnId)
+        startedSpeechTurns.delete(turn.turnId)
         resetSpeakingState()
+      }
     },
   }
   if (speechMuted.value)
@@ -1129,6 +1221,8 @@ onUnmounted(() => {
   }
   clearSpeechMotionWatchdog()
   clearActExpressionTimer()
+  pendingSpecials.clear()
+  startedSpeechTurns.clear()
   avatarTouchAggregator.dispose()
   live2d.dispose()
   disposePlaybackStateHandler()
@@ -1216,6 +1310,7 @@ defineExpose({
         :enable-orbit-controls="props.enableOrbitControls"
         :audio-context="audioContext"
         :connect-speech="connectSpeech"
+        :speech-active="nowSpeaking"
         @error="reportStageRenderError"
         @idle-animation-looped="onVrmIdleAnimationLooped"
         @vrm-interact="onVRMInteract"

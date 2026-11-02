@@ -58,6 +58,7 @@ import {
 
   shallowRef,
 
+  toRef,
   toRefs,
   watch,
 
@@ -120,6 +121,8 @@ const props = withDefaults(defineProps<{
   audioContext?: AudioContext
   /** Connects the lip sync node to the played speech and returns the disconnection. */
   connectSpeech?: (node: AudioNode) => () => void
+  /** Whether speech is currently audible. Clears lip-sync visemes when false. */
+  speechActive?: boolean
   cursorPosition?: { x: number, y: number }
   /** The stable identity of the last model that completed scene binding. */
   lastCommittedModelId?: string
@@ -380,7 +383,7 @@ const idleEyeSaccades = useIdleEyeSaccades()
 // deep-unwraps nested refs/computed (e.g. isEmoteActive) and breaks reads
 // like vrmEmote.value.isEmoteActive.value in the render loop.
 const vrmEmote = shallowRef<ReturnType<typeof useVRMEmote>>()
-const vrmLipSync = useVRMLipSync(audioContext, connectSpeech)
+const vrmLipSync = useVRMLipSync(audioContext, connectSpeech, toRef(props, 'speechActive'))
 
 // For sky box update
 const nprProgramVersion = ref(0)
