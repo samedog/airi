@@ -16,13 +16,22 @@
 
 > [!NOTE]
 > This is **samedog's WF/AIRI fork**, a Linux/Wayland-focused build of Project AIRI.
-> It carries a small custom patch set on the fork's `main` branch, based on upstream `main` at
-> `v0.13.1`.
+> It carries a focused custom patch set on the fork's `main` branch, based on upstream `v0.13.1`
+> commit `335f6cac7`. Upstream has moved on; this fork does not merge upstream automatically.
 >
 > The Linux-only feature is Beat Sync system audio capture through `parec` and PipeWire/PulseAudio.
 > It records a selected monitor source instead of using screen-capture loopback.
-> Other desktop fixes target KDE and Wayland but remain cross-platform in source.
-> This fork is not a replacement for upstream and does not drop support for other platforms.
+> The Beat Sync detector has been replaced with a local HIT/Vibe engine: Vibe exposes energy, punch,
+> and transient hit; HIT density drives VRM dance speed and energy tiers. The hidden detector window
+> is recoverable after close or renderer crash.
+>
+> VRM animations are a user-local library: multiple clips per slot, dance energy tags, idle rotation,
+> preview/delete, model-scoped bindings, and ACT motion resolution. Only the upstream idle animation
+> is bundled; Mixamo-derived assets are not redistributed.
+>
+> Other desktop fixes target KDE and Wayland but remain cross-platform in source. This fork is not a
+> replacement for upstream and does not drop support for other platforms. Release buttons below point
+> at upstream Project AIRI; this fork does not publish a signed updater feed.
 >
 > See [CUSTOMIZATIONS.md](./CUSTOMIZATIONS.md) for the full change list and update process.
 
