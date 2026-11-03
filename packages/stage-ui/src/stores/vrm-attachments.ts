@@ -10,13 +10,14 @@ import localforage from 'localforage'
 
 import { errorMessageFrom } from '@moeru/std'
 import { DEFAULT_VRM_ATTACHMENT_TRANSFORM, vrmAttachmentFormatFromFileName } from '@proj-airi/stage-shared/vrm-attachments'
-import { useLocalStorage } from '@vueuse/core'
+import { useBroadcastChannel, useLocalStorage } from '@vueuse/core'
 import { nanoid } from 'nanoid'
 import { defineStore } from 'pinia'
 import { onScopeDispose, reactive, ref, watch } from 'vue'
 
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
 const ASSET_STORE_NAME = 'airi-vrm-attachments'
+const ATTACHMENT_CHANNEL = 'airi-vrm-attachments'
 
 const attachmentFiles = localforage.createInstance({
   name: ASSET_STORE_NAME,
@@ -41,6 +42,25 @@ export const useVrmAttachmentsStore = defineStore('vrm-attachments', () => {
   const loading = ref(false)
   const error = ref<string>()
   let hydration: Promise<void> | undefined
+  const { data: incomingSnapshot, post: postSnapshot } = useBroadcastChannel<
+    { assets: VrmAttachmentAsset[], bindingsByModel: Record<string, VrmAttachmentBinding[]> },
+    { assets: VrmAttachmentAsset[], bindingsByModel: Record<string, VrmAttachmentBinding[]> }
+  >({ name: ATTACHMENT_CHANNEL })
+
+  function publish() {
+    postSnapshot({
+      assets: JSON.parse(JSON.stringify(assets.value)) as VrmAttachmentAsset[],
+      bindingsByModel: JSON.parse(JSON.stringify(bindingsByModel.value)) as Record<string, VrmAttachmentBinding[]>,
+    })
+  }
+
+  watch(incomingSnapshot, (snapshot) => {
+    if (!snapshot)
+      return
+    assets.value = snapshot.assets
+    bindingsByModel.value = snapshot.bindingsByModel
+    void hydrateAssetUrls()
+  })
 
   function upsertAsset(asset: VrmAttachmentAsset) {
     const index = assets.value.findIndex(candidate => candidate.id === asset.id)
@@ -116,6 +136,7 @@ export const useVrmAttachmentsStore = defineStore('vrm-attachments', () => {
     }
     createAssetUrl(id, file)
     upsertAsset(asset)
+    publish()
     return asset
   }
 
@@ -132,6 +153,7 @@ export const useVrmAttachmentsStore = defineStore('vrm-attachments', () => {
         bindings.filter(binding => binding.assetId !== assetId),
       ]),
     )
+    publish()
   }
 
   function getBindings(modelId: string) {
@@ -143,6 +165,7 @@ export const useVrmAttachmentsStore = defineStore('vrm-attachments', () => {
       ...bindingsByModel.value,
       [modelId]: bindings,
     }
+    publish()
   }
 
   function addBinding(modelId: string, assetId: string, overrides?: Partial<VrmAttachmentBinding>) {
