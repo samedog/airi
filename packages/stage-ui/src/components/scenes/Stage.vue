@@ -268,9 +268,11 @@ const lipSyncStarted = ref(false)
 const lipSyncLoopId = ref<number>()
 const live2dLipSync = ref<Live2DLipSync>()
 const live2dLipSyncOptions: Live2DLipSyncOptions = { mouthUpdateIntervalMs: 50, mouthLerpWindowMs: 50 }
+let playingCount = 0
 
 function resetAssistantSpeechSurface(source: string) {
-  nowSpeaking.value = false
+  if (playingCount === 0)
+    nowSpeaking.value = false
   mouthOpenSize.value = 0
   assistantCaption.value = ''
 
@@ -1054,7 +1056,6 @@ function createSerializedPlayback(inner: AudioPlayback): AudioPlayback {
 const serializedPlayback = createSerializedPlayback(playback)
 const pendingSpecials = new Map<string, string[]>()
 const startedSpeechTurns = new Set<string>()
-let playingCount = 0
 
 function resetSpeakingState() {
   nowSpeaking.value = false
