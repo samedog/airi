@@ -28,7 +28,7 @@
 >
 > VRM animations are a user-local library: multiple clips per slot, dance energy tags, idle rotation,
 > preview/delete, model-scoped bindings, and ACT motion resolution. Only the upstream idle animation
-> is bundled; Mixamo-derived assets are not redistributed.
+> is bundled. Imported clips stay on the device and are not part of the source tree.
 >
 > Other desktop fixes target KDE and Wayland but remain cross-platform in source. This fork is not a
 > replacement for upstream and does not drop support for other platforms. Release buttons below point

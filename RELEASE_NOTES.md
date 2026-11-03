@@ -4,8 +4,8 @@ Linux/Wayland-focused fork of Project AIRI, based on upstream `main` at `v0.13.1
 
 ## Highlights
 
-- Clean rebuild of `0.13.1-r1` without Mixamo-derived VRM animations. Only the upstream AIRI
-  `idle_loop.vrma` is bundled with the app.
+- Only the upstream AIRI `idle_loop.vrma` is bundled with the app. Imported VRM animations stay
+  user-local.
 - Beat Sync now uses a selected PipeWire/PulseAudio monitor source through `parec`, instead of
   the desktop screen-capture loopback. Choose the audio source in Settings > Beat Sync. There is
   no implicit default source.

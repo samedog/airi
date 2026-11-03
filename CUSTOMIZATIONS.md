@@ -105,10 +105,8 @@ responds to musical transients without the Tempora worklet dependency.
 ### VRM animation library and speech playback
 
 - Kept the upstream `idle_loop.vrma` as the only bundled VRM animation.
-- Removed the Mixamo-derived `.vrma` assets from the source tree. They are user-local assets and
-  must not be redistributed with the fork or its release artifacts.
-- User animations live under `app.getPath('userData')/vrm-animations` and never enter the source
-  tree or release artifacts.
+- Imported animations are user-local assets. They live under
+  `app.getPath('userData')/vrm-animations` and never enter the source tree or release artifacts.
 - Added a Models > VRM Animations library with import, open-folder, refresh, preview, stop-preview,
   and delete actions.
 - Each slot supports multiple clips instead of one ID:
@@ -146,9 +144,9 @@ responds to musical transients without the Tempora worklet dependency.
 - `Stage.vue` serializes voice playback groups so replies and notifications wait for the current
   group to finish or stop instead of talking over each other.
 
-Reason: the fork must not redistribute Mixamo animations, while the bundled AIRI idle animation
-keeps the stage usable when no user animation is installed. The library is more useful when a slot
-can hold several clips and dance intensity can select among them.
+Reason: imported clips stay user-local, while the bundled AIRI idle animation keeps the stage usable
+when no user animation is installed. The library is more useful when a slot can hold several clips
+and dance intensity can select among them.
 
 ### VRM parts, radial menu, and attachments
 
