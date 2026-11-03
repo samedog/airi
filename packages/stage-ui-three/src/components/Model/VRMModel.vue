@@ -8,6 +8,7 @@
 
 import type { VRM } from '@pixiv/three-vrm'
 import type { VRMAnimation } from '@pixiv/three-vrm-animation'
+import type { VrmResolvedAttachment } from '@proj-airi/stage-shared/vrm-attachments'
 import type {
   AnimationAction,
   AnimationClip,
@@ -80,6 +81,7 @@ import {
   useBlink,
   useIdleEyeSaccades,
 } from '../../composables/vrm/animation'
+import { createVrmAttachmentRuntime } from '../../composables/vrm/attachments'
 import { loadVrm } from '../../composables/vrm/core'
 import { useVRMEmote } from '../../composables/vrm/expression'
 import { createVrmInteractionColliders } from '../../composables/vrm/interaction'
@@ -129,6 +131,8 @@ const props = withDefaults(defineProps<{
   connectSpeech?: (node: AudioNode) => () => void
   /** Whether speech is currently audible. Clears lip-sync visemes when false. */
   speechActive?: boolean
+  /** Resolved attachment bindings for this model. */
+  attachments?: VrmResolvedAttachment[]
   cursorPosition?: { x: number, y: number }
   /** The stable identity of the last model that completed scene binding. */
   lastCommittedModelId?: string
@@ -207,6 +211,13 @@ const headPosition = new Vector3()
 const headUp = new Vector3()
 const modelLoaded = ref<boolean>(false)
 const interactionColliders = shallowRef<VrmInteractionColliderSet>()
+const attachmentRuntime = createVrmAttachmentRuntime()
+
+function syncAttachments() {
+  void attachmentRuntime.apply(vrm.value, props.attachments ?? [])
+}
+
+watch(() => props.attachments, syncAttachments, { deep: true })
 
 let loadSequence = 0
 // for eye tracking modes
@@ -494,6 +505,7 @@ function getActiveManagedVrmInstance() {
 }
 
 function clearActiveManagedVrmRefs() {
+  attachmentRuntime.dispose()
   vrmAnimationMixer.value = undefined
   vrmEmote.value = undefined
   vrm.value = undefined
@@ -522,6 +534,7 @@ function applyManagedVrmInstance(instance: ManagedVrmInstance) {
   vrmAnimationMixer.value = instance.mixer
   vrmEmote.value = instance.emote
   interactionColliders.value = instance.interactionColliders
+  syncAttachments()
   watchIdleLoops(instance.mixer)
   ensureIdlePlaying(instance.mixer)
   getIdleAction(instance.mixer)?.setEffectiveTimeScale(idleAnimationSpeed.value)

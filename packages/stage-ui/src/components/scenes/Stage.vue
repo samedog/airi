@@ -58,6 +58,7 @@ import { useSettingsStageModel } from '../../stores/settings/stage-model'
 import { useSpeechOutputControlStore } from '../../stores/speech-output-control'
 import { useVoiceStore } from '../../stores/voice'
 import { useVrmAnimationsStore } from '../../stores/vrm-animations'
+import { useVrmAttachmentsStore } from '../../stores/vrm-attachments'
 
 const props = withDefaults(defineProps<{
   cursorPosition?: { x: number, y: number }
@@ -327,7 +328,15 @@ const vrmMeshCategoryByModel = useLocalStorage<Record<string, Record<string, Vrm
   'settings/vrm/mesh-categories',
   {},
 )
+const vrmAttachmentsStore = useVrmAttachmentsStore()
+void vrmAttachmentsStore.initialize()
 const vrmMeshModelKey = computed(() => stageModelSelected.value || 'default')
+const vrmAttachments = computed(() => vrmAttachmentsStore.resolveAttachments(vrmMeshModelKey.value))
+const vrmAttachmentMenuItems = computed(() => vrmAttachments.value.map(attachment => ({
+  id: attachment.id,
+  name: attachment.name,
+  visible: attachment.visible,
+})))
 const currentVrmMeshVisibility = computed(() => vrmMeshVisibilityByModel.value[vrmMeshModelKey.value] ?? {})
 const currentVrmMeshCategories = computed(() => vrmMeshCategoryByModel.value[vrmMeshModelKey.value] ?? {})
 
@@ -442,6 +451,10 @@ function resetVrmMeshVisibility() {
   const next = { ...vrmMeshVisibilityByModel.value }
   delete next[vrmMeshModelKey.value]
   vrmMeshVisibilityByModel.value = next
+}
+
+function toggleVrmAttachment(bindingId: string) {
+  vrmAttachmentsStore.toggleBinding(vrmMeshModelKey.value, bindingId)
 }
 
 function recategorizeVrmMeshNode(node: VrmMeshNode, category: VrmMeshCategory | null) {
@@ -1420,6 +1433,7 @@ defineExpose({
         :audio-context="audioContext"
         :connect-speech="connectSpeech"
         :speech-active="nowSpeaking"
+        :attachments="vrmAttachments"
         @error="reportStageRenderError"
         @idle-animation-looped="onVrmIdleAnimationLooped"
         @vrm-interact="onVRMInteract"
@@ -1522,8 +1536,10 @@ defineExpose({
       :x="vrmMeshMenuPosition.x"
       :y="vrmMeshMenuPosition.y"
       :nodes="vrmMeshNodes"
+      :attachments="vrmAttachmentMenuItems"
       @close="vrmMeshMenuOpen = false"
       @toggle="toggleVrmMeshNode"
+      @toggle-attachment="toggleVrmAttachment"
       @reset="resetVrmMeshVisibility"
       @recategorize="recategorizeVrmMeshNode"
     />

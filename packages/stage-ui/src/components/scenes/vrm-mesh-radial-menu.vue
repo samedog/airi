@@ -5,16 +5,26 @@ import { useEventListener, useWindowSize } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+interface AttachmentItem {
+  id: string
+  name: string
+  visible: boolean
+}
+
+type MenuCategory = VrmMeshCategory | 'attachments'
+
 const props = defineProps<{
   open: boolean
   x: number
   y: number
   nodes: VrmMeshNode[]
+  attachments?: AttachmentItem[]
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'toggle', node: VrmMeshNode): void
+  (e: 'toggleAttachment', id: string): void
   (e: 'reset'): void
   (e: 'recategorize', node: VrmMeshNode, category: VrmMeshCategory | null): void
 }>()
@@ -26,9 +36,14 @@ interface CategoryMeta {
   icon: string
 }
 
-interface CategoryGroup extends CategoryMeta {
+interface CategoryButton {
+  id: MenuCategory
+  icon: string
   label: string
   nodes: VrmMeshNode[]
+  attachments: AttachmentItem[]
+  count: number
+  disabled: boolean
 }
 
 const CATEGORY_META: readonly CategoryMeta[] = [
@@ -38,26 +53,54 @@ const CATEGORY_META: readonly CategoryMeta[] = [
   { id: 'extras', icon: 'i-solar:box-bold-duotone' },
 ]
 
-const activeCategory = ref<VrmMeshCategory>()
+const activeCategory = ref<MenuCategory>()
 const moveMode = ref(false)
 const recategorizingNode = ref<VrmMeshNode>()
-const categoryGroups = computed<CategoryGroup[]>(() => CATEGORY_META.map(meta => ({
-  ...meta,
-  label: t(`settings.vrm.model-parts.categories.${meta.id}`),
-  nodes: props.nodes.filter(node => node.category === meta.id),
-})))
-const activeGroup = computed(() => categoryGroups.value.find(group => group.id === activeCategory.value))
+const meshCategories = computed<CategoryButton[]>(() => CATEGORY_META.map((meta) => {
+  const nodes = props.nodes.filter(node => node.category === meta.id)
+  return {
+    ...meta,
+    label: t(`settings.vrm.model-parts.categories.${meta.id}`),
+    nodes,
+    attachments: [],
+    count: nodes.length,
+    disabled: nodes.length === 0,
+  }
+}))
+const attachmentCategory = computed<CategoryButton>(() => ({
+  id: 'attachments',
+  icon: 'i-solar:paperclip-bold-duotone',
+  label: t('settings.vrm.model-parts.categories.attachments'),
+  nodes: [],
+  attachments: props.attachments ?? [],
+  count: props.attachments?.length ?? 0,
+  disabled: !props.attachments?.length,
+}))
+const categoryButtons = computed(() => activeCategory.value
+  ? meshCategories.value
+  : [...meshCategories.value, attachmentCategory.value])
+const activeGroup = computed(() => [...meshCategories.value, attachmentCategory.value]
+  .find(group => group.id === activeCategory.value))
 const displayedNodes = computed(() => activeGroup.value?.nodes ?? [])
+const displayedAttachments = computed(() => activeGroup.value?.attachments ?? [])
 const categoryPickerOpen = computed(() => recategorizingNode.value !== undefined)
-const displayedCount = computed(() => activeCategory.value && !categoryPickerOpen.value
-  ? displayedNodes.value.length
-  : categoryGroups.value.length)
+const displayedCount = computed(() => {
+  if (categoryPickerOpen.value)
+    return meshCategories.value.length
+  if (!activeCategory.value)
+    return categoryButtons.value.length
+  return activeCategory.value === 'attachments'
+    ? displayedAttachments.value.length
+    : displayedNodes.value.length
+})
 
 const { width, height } = useWindowSize()
 const itemRadius = computed(() => {
   if (!activeCategory.value || categoryPickerOpen.value)
     return 112
-  const count = Math.max(displayedNodes.value.length, 1)
+  const count = Math.max(activeCategory.value === 'attachments'
+    ? displayedAttachments.value.length
+    : displayedNodes.value.length, 1)
   return Math.min(190, Math.max(136, 96 + count * 6))
 })
 const safeInset = computed(() => itemRadius.value + 64)
@@ -78,6 +121,8 @@ const subtitle = computed(() => {
     return t('settings.vrm.model-parts.move-hint')
   if (!activeCategory.value)
     return t('settings.vrm.model-parts.choose-category')
+  if (activeCategory.value === 'attachments')
+    return t('settings.vrm.model-parts.choose-attachment')
   return moveMode.value
     ? t('settings.vrm.model-parts.choose-part-to-move')
     : t('settings.vrm.model-parts.choose-part')
@@ -101,9 +146,22 @@ function itemStyle(index: number) {
   }
 }
 
-function selectCategory(group: CategoryGroup) {
-  if (group.nodes.length > 0)
+function selectCategory(group: CategoryButton) {
+  if (!group.disabled)
     activeCategory.value = group.id
+}
+
+function toggleAttachment(attachment: AttachmentItem) {
+  emit('toggleAttachment', attachment.id)
+}
+
+function handleCategoryClick(group: CategoryButton) {
+  if (recategorizingNode.value) {
+    if (group.id !== 'attachments')
+      chooseCategory(group.id)
+    return
+  }
+  selectCategory(group)
 }
 
 function beginMove(node: VrmMeshNode) {
@@ -111,13 +169,13 @@ function beginMove(node: VrmMeshNode) {
   recategorizingNode.value = node
 }
 
-function categoryButtonClass(group: CategoryGroup) {
+function categoryButtonClass(group: CategoryButton) {
   if (categoryPickerOpen.value) {
     return group.id === recategorizingNode.value?.category
       ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-primary-900/10 ring-2 ring-primary-400/60 dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-100'
       : 'border-primary-300/80 bg-white/95 text-neutral-700 shadow-primary-900/10 dark:border-primary-500/70 dark:bg-neutral-800/95 dark:text-neutral-100 hover:bg-white dark:hover:bg-neutral-800'
   }
-  if (group.nodes.length === 0) {
+  if (group.disabled) {
     return 'cursor-not-allowed border-neutral-300/50 bg-neutral-200/70 text-neutral-400 opacity-60 dark:border-neutral-700/60 dark:bg-neutral-900/70 dark:text-neutral-500'
   }
   return 'border-primary-300/80 bg-white/95 text-neutral-700 shadow-primary-900/10 dark:border-primary-500/70 dark:bg-neutral-800/95 dark:text-neutral-100 hover:bg-white dark:hover:bg-neutral-800'
@@ -218,7 +276,7 @@ useEventListener(window, 'keydown', onKeydown)
           <span class="i-solar:refresh-bold-duotone text-sm" aria-hidden="true" />
           {{ t('settings.vrm.model-parts.auto') }}
         </button>
-        <template v-else-if="activeCategory">
+        <template v-else-if="activeCategory && activeCategory !== 'attachments'">
           <button
             type="button"
             class="h-9 flex items-center gap-1 rounded-full px-2.5 text-[10px] font-medium shadow-lg transition"
@@ -288,15 +346,15 @@ useEventListener(window, 'keydown', onKeydown)
 
         <template v-if="!activeCategory || recategorizingNode">
           <button
-            v-for="(group, index) in categoryGroups"
+            v-for="(group, index) in categoryButtons"
             :key="group.id"
             type="button"
             :style="itemStyle(index)"
-            :disabled="!recategorizingNode && group.nodes.length === 0"
-            :title="recategorizingNode || group.nodes.length > 0 ? group.label : t('settings.vrm.model-parts.empty-category')"
+            :disabled="!recategorizingNode && group.disabled"
+            :title="!recategorizingNode && group.disabled ? t('settings.vrm.model-parts.empty-category') : group.label"
             class="absolute w-28 flex items-center gap-1.5 border-2 rounded-2xl px-2 py-2 text-left text-[10px] font-medium shadow-lg transition"
             :class="categoryButtonClass(group)"
-            @click.stop="recategorizingNode ? chooseCategory(group.id) : selectCategory(group)"
+            @click.stop="handleCategoryClick(group)"
           >
             <span :class="group.icon" class="shrink-0 text-base" aria-hidden="true" />
             <span class="min-w-0 flex-1 truncate">{{ group.label }}</span>
@@ -309,10 +367,34 @@ useEventListener(window, 'keydown', onKeydown)
             <span
               v-else
               class="absolute h-4 min-w-4 flex items-center justify-center border border-white/70 rounded-full px-1 text-[9px] text-white font-bold -right-1.5 -top-1.5 dark:border-neutral-800"
-              :class="group.nodes.length === 0 ? 'bg-neutral-400 dark:bg-neutral-600' : 'bg-primary-500'"
+              :class="group.disabled ? 'bg-neutral-400 dark:bg-neutral-600' : 'bg-primary-500'"
             >
-              {{ group.nodes.length }}
+              {{ group.count }}
             </span>
+          </button>
+        </template>
+
+        <template v-else-if="activeCategory === 'attachments'">
+          <button
+            v-for="(attachment, index) in displayedAttachments"
+            :key="attachment.id"
+            type="button"
+            :style="itemStyle(index)"
+            :title="attachment.name"
+            :aria-pressed="attachment.visible"
+            class="absolute w-24 flex flex-col items-center gap-1 border-2 rounded-xl px-1.5 py-1 text-center text-[10px] leading-tight shadow-lg"
+            :class="attachment.visible
+              ? 'border-primary-300/80 bg-white/95 text-neutral-700 dark:border-primary-500/70 dark:bg-neutral-800/95 dark:text-neutral-100'
+              : 'border-neutral-300/80 bg-neutral-200/90 text-neutral-500 opacity-70 dark:border-neutral-600 dark:bg-neutral-800/80 dark:text-neutral-400'"
+            @click.stop="toggleAttachment(attachment)"
+          >
+            <span
+              :class="attachment.visible
+                ? 'i-solar:paperclip-bold-duotone text-base text-primary-500'
+                : 'i-solar:paperclip-linear text-base'"
+              aria-hidden="true"
+            />
+            <span class="w-full truncate">{{ attachment.name }}</span>
           </button>
         </template>
 

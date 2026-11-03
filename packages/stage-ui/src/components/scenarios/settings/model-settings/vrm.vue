@@ -12,6 +12,8 @@ import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import VrmAttachments from './vrm-attachments.vue'
+
 import { useAiriCardStore } from '../../../../stores/modules/airi-card'
 import { useSettings } from '../../../../stores/settings'
 import { useVrmAnimationsStore } from '../../../../stores/vrm-animations'
@@ -85,8 +87,8 @@ const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   return vrmAnimationsStore.resolveBindings(vrmAnimationBindingModelId.value, stored)
 })
 
-const vrmSettingsTab = ref<'model' | 'animations'>('model')
-const vrmSettingsTabOptions = computed<{ value: 'model' | 'animations', label: string, icon: string }[]>(() => [
+const vrmSettingsTab = ref<'model' | 'animations' | 'attachments'>('model')
+const vrmSettingsTabOptions = computed<{ value: 'model' | 'animations' | 'attachments', label: string, icon: string }[]>(() => [
   {
     value: 'model',
     label: t('settings.vrm.tabs.model'),
@@ -96,6 +98,11 @@ const vrmSettingsTabOptions = computed<{ value: 'model' | 'animations', label: s
     value: 'animations',
     label: t('settings.vrm.tabs.animations'),
     icon: 'i-solar:play-bold-duotone',
+  },
+  {
+    value: 'attachments',
+    label: t('settings.vrm.tabs.attachments'),
+    icon: 'i-solar:paperclip-bold-duotone',
   },
 ])
 
@@ -408,6 +415,9 @@ const envOptions = computed(() => [
       </p>
       <SelectTab v-model="maxFps" :options="fpsOptions" size="sm" :class="['shrink-0']" />
     </Container>
+  </template>
+  <template v-if="vrmSettingsTab === 'attachments'">
+    <VrmAttachments :model-id="vrmAnimationBindingModelId ?? ''" />
   </template>
   <template v-if="vrmSettingsTab === 'animations'">
     <Container

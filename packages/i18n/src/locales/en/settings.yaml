@@ -2733,6 +2733,7 @@ vrm:
     choose-category: Choose a category
     choose-part: Choose a part
     choose-part-to-move: Choose a part to move
+    choose-attachment: Toggle an attachment
     move: Move
     moving: Moving
     move-title: 'Move {name}'
@@ -2749,9 +2750,28 @@ vrm:
       outfit: Outfit
       accessories: Accessories
       extras: Extras
+      attachments: Attachments
+  attachments:
+    title: Attachments
+    description: Import GLB or VRM accessories. Each model keeps its own socket, transform, visibility, and covered mesh list. Files stay on this device.
+    import: Import attachment
+    refresh: Refresh
+    remove: Remove
+    empty: No attachments imported yet.
+    select-asset: Select an attachment
+    add: Add to model
+    show: Show
+    hide: Hide
+    bone: Socket bone
+    scale: Scale
+    position: Position
+    rotation: Rotation (deg)
+    hide-meshes: Hide mesh IDs while visible
+    hide-meshes-placeholder: BaseMesh_BODY.001, QuantumHacker_Suit.001
   tabs:
     model: Model
     animations: Animations
+    attachments: Attachments
   animation:
     title: VRM Animations
     description: Import .vrma files and assign one or more to each emotion or to the looping idle. A slot with multiple clips picks one at random without repeating the previous choice. Dance clips can be tagged Calm, Medium, or Intense, and Beat Sync vibe energy chooses among the tags. Idle defaults to the bundled AIRI animation. Dance is used while Beat Sync is active, and its speed follows the HIT pulse. Animations stay on this device and are not uploaded.

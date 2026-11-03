@@ -9,6 +9,7 @@
 
 import type { VRM } from '@pixiv/three-vrm'
 import type { PresenceBubblePalette, PresenceBubbleState } from '@proj-airi/stage-shared'
+import type { VrmResolvedAttachment } from '@proj-airi/stage-shared/vrm-attachments'
 import type { TresContext } from '@tresjs/core'
 import type { DirectionalLight, SphericalHarmonics3, Texture, WebGLRenderer, WebGLRenderTarget } from 'three'
 
@@ -68,6 +69,8 @@ const props = withDefaults(defineProps<{
   connectSpeech?: (node: AudioNode) => () => void
   /** Whether speech is currently audible. Clears lip-sync visemes when false. */
   speechActive?: boolean
+  /** Resolved attachment bindings for the active model. */
+  attachments?: VrmResolvedAttachment[]
   cursorPosition?: { x: number, y: number }
   /**
    * Scene painted behind the model, inside this canvas rather than under it, so one
@@ -1101,6 +1104,7 @@ defineExpose({
         :audio-context="props.audioContext"
         :connect-speech="props.connectSpeech"
         :speech-active="props.speechActive"
+        :attachments="props.attachments"
         :cursor-position="props.cursorPosition"
         :last-committed-model-id="lastCommittedModelId"
         :model-id="requestedModelIdentity?.modelId ?? props.modelId"

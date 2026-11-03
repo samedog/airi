@@ -40,6 +40,8 @@ function renderMenu(
   onToggle = vi.fn(),
   onReset = vi.fn(),
   onRecategorize = vi.fn(),
+  onToggleAttachment = vi.fn(),
+  attachments: Array<{ id: string, name: string, visible: boolean }> = [],
 ) {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en }, missingWarn: false, fallbackWarn: false })
   return render(VrmMeshRadialMenu, {
@@ -48,9 +50,11 @@ function renderMenu(
       x: 500,
       y: 400,
       nodes,
+      attachments,
       onToggle,
       onReset,
       onRecategorize,
+      onToggleAttachment,
     },
     global: { plugins: [i18n] },
   })
@@ -73,6 +77,21 @@ describe('vrm mesh radial menu', () => {
 
     click(screen.getByRole('button', { name: 'BODY' }))
     expect(onToggle).toHaveBeenCalledWith(expect.objectContaining({ id: 'BaseMesh_BODY.001' }))
+  })
+
+  it('opens the attachment ring and toggles one attachment', async () => {
+    const onToggleAttachment = vi.fn()
+    const screen = renderMenu(vi.fn(), vi.fn(), vi.fn(), onToggleAttachment, [
+      { id: 'attachment-1', name: 'Cyber Eye', visible: true },
+      { id: 'attachment-2', name: 'Left Arm', visible: false },
+    ])
+
+    await expect.element(screen.getByRole('button', { name: /Attachments/ })).toBeVisible()
+    click(screen.getByRole('button', { name: /Attachments/ }))
+    await expect.element(screen.getByText('Toggle an attachment')).toBeVisible()
+
+    click(screen.getByRole('button', { name: 'Cyber Eye' }))
+    expect(onToggleAttachment).toHaveBeenCalledWith('attachment-1')
   })
 
   it('resets every part from the category ring', async () => {
