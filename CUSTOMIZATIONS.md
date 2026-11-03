@@ -28,6 +28,8 @@ accepted.
   HIT-driven VRM dance speed, dance energy tiers, and a recoverable hidden detector window.
 - **VRM animations:** user-local `.vrma` library, multiple clips per slot, dance energy tags, idle
   rotation, preview/delete, model-scoped bindings, and ACT motion resolution.
+- **VRM parts and attachments:** per-model mesh visibility, categorized radial menu, manual
+  recategorization, and a global GLB/VRM attachment library with humanoid bone sockets.
 - **Desktop behavior:** tray-first close, KDE/Wayland shortcut defaults, and the Linux screen-capture
   source-cache workaround.
 - **Tamagotchi/Kirie parity:** the Kirie renderer mirrors Beat Sync, the VRM preview bridge, and
@@ -140,6 +142,41 @@ responds to musical transients without the Tempora worklet dependency.
 Reason: the fork must not redistribute Mixamo animations, while the bundled AIRI idle animation
 keeps the stage usable when no user animation is installed. The library is more useful when a slot
 can hold several clips and dance intensity can select among them.
+
+### VRM parts, radial menu, and attachments
+
+- Added per-model mesh visibility for loaded VRM models:
+  - right-click the stage or use the eye button to open the radial menu;
+  - Body, Outfit, Accessories, Extras, and Attachments categories;
+  - each category shows the number of available items and opens a second ring;
+  - interaction raycaster colliders and spring-bone colliders are excluded;
+  - visibility is stored under `settings/vrm/mesh-visibility`.
+- Added manual category overrides:
+  - Move mode and right-click on a part open the category picker;
+  - Auto restores automatic classification;
+  - overrides are stored under `settings/vrm/mesh-categories`;
+  - automatic classification uses mesh and material names, including names sanitized by Three.js.
+- Added a global attachment library for `.glb` and `.vrm` files:
+  - files live in IndexedDB under the `airi-vrm-attachments` store;
+  - metadata is stored under `settings/vrm/attachment-assets`;
+  - per-model bindings are stored under `settings/vrm/attachment-bindings`;
+  - a BroadcastChannel keeps settings and stage windows in sync.
+- Added a Models > VRM > Attachments tab:
+  - import and remove assets;
+  - bind an asset to the active model;
+  - choose a VRM humanoid bone socket;
+  - edit position, Euler rotation in degrees, and uniform scale;
+  - show or hide a binding;
+  - hide selected mesh IDs while the attachment is visible.
+- Added runtime attachment placement:
+  - rigid and skinned assets are cloned with `SkeletonUtils`;
+  - assets are attached to raw VRM humanoid bones;
+  - source assets are cached and stale async loads are generation-guarded;
+  - hidden mesh IDs are restored when the attachment is removed or hidden.
+- Added an Attachments category to the radial menu for quick show/hide.
+
+Boundaries: attachment skeletons are not retargeted to the avatar limbs, and masking uses explicit
+mesh IDs rather than per-vertex bone-weight masks.
 
 ### Stage and Kirie parity
 
