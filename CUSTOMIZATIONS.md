@@ -11,9 +11,9 @@ artifacts, not the source of truth.
 - Original custom line base: `335f6cac7` (`v0.13.1` plus three upstream commits)
 - Current custom branch: `main`
 - Electron: upstream `43.8.4`
-- Upstream sync branch: `code-rebase/upstream-main-2026-11-01`
-- Upstream merge target: `upstream/main` at `7ab1ecae4` (2026-11-01)
-- Current patch baseline: `upstream/main` at `7ab1ecae4`
+- Upstream sync branch: `code-rebase/upstream-main-2026-11-03`
+- Upstream merge target: `upstream/main` at `d1eb6fe18` (2026-11-03)
+- Current patch baseline: `upstream/main` at `d1eb6fe18`
 - Current patch artifact: `patches/airi-custom-upstream-main.patch`
 
 The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases;
