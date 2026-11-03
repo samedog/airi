@@ -43,6 +43,19 @@ does not carry a local copy.
 - [#3350](https://github.com/moeru-ai/airi/pull/3350) `fix(stage-ui-three): clear stale VRM
   visemes after speech` — merged upstream at `2d7a8fa09`.
 
+## Fork-only fixes
+
+These fixes address fork-specific behavior and do not have an upstream PR. Do not submit them as
+upstream changes without first separating the fork-only held-expression behavior.
+
+- `b6423a3fb fix: release speech expressions when the response ends` — the fork holds VRM
+  expressions for the whole spoken response. ACT expressions can arrive before `speechVoicing`
+  becomes true, and `actExpressionActive` could remain set after speech. The stale expression then
+  reappeared when the window regained focus. Release now follows both `speechVoicing` and
+  `voice.activeTurns`, resetting the expression when either speech or the response turn ends.
+  Upstream does not use held expression state and instead relies on a 3-second expression timeout,
+  so this regression does not apply upstream.
+
 ## Platform scope
 
 This is a Linux/Wayland-focused fork, not a Linux-only source tree. The custom code remains
