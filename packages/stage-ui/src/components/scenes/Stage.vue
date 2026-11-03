@@ -148,6 +148,19 @@ function clearSpeechMotionWatchdog() {
     clearTimeout(speechMotionWatchdog)
   speechMotionWatchdog = undefined
 }
+
+/** Releases every expression held only for the current spoken response. */
+function releaseSpeechExpression() {
+  if (!speechEmotionActive.value && !actExpressionActive)
+    return
+
+  speechEmotionActive.value = false
+  actExpressionActive = false
+  activeDanceExpressionTier = undefined
+  clearActExpressionTimer()
+  if (stageModelRenderer.value === 'vrm')
+    resetVrmExpression()
+}
 /** `voicing` of `SpeechOutputPlaybackState` in the speech bus. The voice output below keeps it. */
 const speechVoicing = shallowRef(false)
 const disposePlaybackStateHandler = defineInvokeHandler(
@@ -165,14 +178,7 @@ watch([nowSpeaking, speechVoicing], ([speaking, voicing]) => {
 watch(speechVoicing, (voicing) => {
   if (voicing)
     return
-  if (speechEmotionActive.value) {
-    speechEmotionActive.value = false
-    actExpressionActive = false
-    activeDanceExpressionTier = undefined
-    clearActExpressionTimer()
-    if (stageModelRenderer.value === 'vrm')
-      resetVrmExpression()
-  }
+  releaseSpeechExpression()
   if (stageModelRenderer.value === 'vrm')
     applyDanceTierExpression()
   if (!activeSpeechMotion.value)
@@ -811,6 +817,7 @@ const live2d = createLive2D({
     : undefined,
 })
 useSharedLive2DExpressionPreview(live2d, selectedCharacterId, () => selectedAvatarModel.value?.id)
+const voice = useVoiceStore()
 
 interface StageEmotionPayload extends EmotionPayload {
   /** True when this ACT already played an explicit body motion. */
@@ -829,7 +836,8 @@ const emotionsQueue = createQueue<StageEmotionPayload>({
         actExpressionActive = true
         activeDanceExpressionTier = undefined
         clearActExpressionTimer()
-        if (!speechVoicing.value) {
+        const holdForSpeech = speechVoicing.value || voice.activeTurns.length > 0
+        if (!holdForSpeech) {
           actExpressionTimer = setTimeout(() => {
             actExpressionTimer = undefined
             actExpressionActive = false
@@ -838,7 +846,7 @@ const emotionsQueue = createQueue<StageEmotionPayload>({
         }
 
         // Hold through the whole response; reset when speechVoicing drops.
-        await setVrmExpression(value, ctx.data.intensity, speechVoicing.value ? 0 : 3000)
+        await setVrmExpression(value, ctx.data.intensity, holdForSpeech ? 0 : 3000)
         if (!ctx.data.suppressVrmBodyAnimation)
           await playVrmEmotionAnimation(ctx.data.name)
       }
@@ -936,7 +944,7 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
 
       // eslint-disable-next-line no-console
       console.debug('emotion detected', emotion)
-      if (speechVoicing.value)
+      if (speechVoicing.value || voice.activeTurns.length > 0)
         speechEmotionActive.value = true
       emotionsQueue.enqueue({
         ...emotion,
@@ -971,7 +979,6 @@ async function playSpecialToken(
 let disconnectLipSync: (() => void) | undefined
 let disconnectAnalyser: (() => void) | undefined
 
-const voice = useVoiceStore()
 const avatarTouch = useAvatarTouchStore()
 // A burst of touches on the avatar becomes one notification for the character.
 // The avatar already plays its own reaction, so a skipped notification still shows the touch.
@@ -1073,7 +1080,10 @@ watch(() => voice.activeTurns, (turns) => {
     playingCount = 0
     pendingSpecials.clear()
     startedSpeechTurns.clear()
+    releaseSpeechExpression()
     resetSpeakingState()
+    if (stageModelRenderer.value === 'vrm')
+      applyDanceTierExpression()
   }
 })
 

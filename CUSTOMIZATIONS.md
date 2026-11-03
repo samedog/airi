@@ -143,6 +143,8 @@ responds to musical transients without the Tempora worklet dependency.
   - logs a missing animation and returns instead of throwing.
 - `Stage.vue` serializes voice playback groups so replies and notifications wait for the current
   group to finish or stop instead of talking over each other.
+- Speech-held VRM expressions follow the active voice turn and release when the response drains.
+  This prevents a stale expression from resurfacing after the window regains focus.
 
 Reason: imported clips stay user-local, while the bundled AIRI idle animation keeps the stage usable
 when no user animation is installed. The library is more useful when a slot can hold several clips
