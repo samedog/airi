@@ -35,6 +35,14 @@ accepted.
 - **Tamagotchi/Kirie parity:** the Kirie renderer mirrors Beat Sync, the VRM preview bridge, and
   model-settings runtime behavior.
 
+## Merged upstream PRs
+
+These fork-originated changes are now upstream. The fork consumes the upstream implementation and
+does not carry a local copy.
+
+- [#3350](https://github.com/moeru-ai/airi/pull/3350) `fix(stage-ui-three): clear stale VRM
+  visemes after speech` — merged upstream at `2d7a8fa09`.
+
 ## Platform scope
 
 This is a Linux/Wayland-focused fork, not a Linux-only source tree. The custom code remains
@@ -47,9 +55,9 @@ cross-platform unless a feature is explicitly gated below.
 - **KDE/Wayland-focused, cross-platform behavior:** hide-to-tray close behavior and the changed
   shortcut defaults. They are useful on KDE and Wayland, but the implementations are platform
   neutral.
-- **Cross-platform:** VRM animation fallback and lip sync, Aivis Speech SSML support, and the
-  HIT/Vibe Beat Sync detector outside the Linux audio-capture path. The same detector and settings
-  code runs in Stage Web, Stage Tamagotchi, and the Kirie renderer.
+- **Cross-platform:** VRM animation fallback, Aivis Speech SSML support, and the HIT/Vibe Beat Sync
+  detector outside the Linux audio-capture path. The same detector and settings code runs in Stage
+  Web, Stage Tamagotchi, and the Kirie renderer.
 
 The About text should say "Linux/Wayland-focused" rather than "100% Linux only" unless the fork
 actually removes the other platform builds.
@@ -94,7 +102,7 @@ actually removes the other platform builds.
 Reason: Beat Sync needs a Linux desktop audio path, a selectable source, and a speed signal that
 responds to musical transients without the Tempora worklet dependency.
 
-### VRM animation library and lip sync
+### VRM animation library and speech playback
 
 - Kept the upstream `idle_loop.vrma` as the only bundled VRM animation.
 - Removed the Mixamo-derived `.vrma` assets from the source tree. They are user-local assets and
@@ -135,9 +143,8 @@ responds to musical transients without the Tempora worklet dependency.
   - stops a gesture before stashing a mixer;
   - restores idle loop/clamp state when a cached action is reused;
   - logs a missing animation and returns instead of throwing.
-- Updated the VRM lip-sync composable and `Stage.vue` so speech activity is tracked and the
-  vocal driver is cleared when audio ends or the source is disconnected. Expression failures are
-  logged instead of becoming unhandled promises.
+- `Stage.vue` serializes voice playback groups so replies and notifications wait for the current
+  group to finish or stop instead of talking over each other.
 
 Reason: the fork must not redistribute Mixamo animations, while the bundled AIRI idle animation
 keeps the stage usable when no user animation is installed. The library is more useful when a slot
