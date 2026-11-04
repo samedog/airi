@@ -265,6 +265,17 @@ Reason: the old shortcuts collide with KDE's Deselect and common editor bindings
 - Full `stage-shared` and `stage-ui` suites still need `jsdom` and the Playwright Chromium binary
   installed in the test environment.
 
+## Spark long-term memory
+
+- Spark Notify runs receive the existing long-term memory tools and persona memory index.
+- The active character card is the persona, with `'default'` as the fallback.
+- Memory is exposed only when long-term memory is enabled and the selected provider supports tools.
+- The model decides whether to read, save, or forget a lasting fact; Spark preparation writes nothing.
+- Owned entries and general entries remain separated by the existing ownership rules.
+- Spark memory uses the existing IndexedDB store; no new memory schema, bridge event, or `input:text`
+  routing is introduced.
+- FO76 and Warframe Spark prompts allow memory tools while still discouraging unrelated tool calls.
+
 ## Updating to a new upstream release
 
 1. Fetch the upstream main branch:
