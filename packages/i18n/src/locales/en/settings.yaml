@@ -2754,9 +2754,15 @@ vrm:
   attachments:
     title: Attachments
     description: Import GLB or VRM accessories. Each model keeps its own socket, transform, visibility, and covered mesh list. Files stay on this device.
+    model-title: Attachments for this model
+    library: Attachment library
+    library-description: Import and delete GLB or VRM accessories.
+    options: Attachment options
     import: Import attachment
     refresh: Refresh
     remove: Remove
+    remove-from-model: Remove from model
+    delete-file: Delete file
     empty: No attachments imported yet.
     select-asset: Select an attachment
     add: Add to model
