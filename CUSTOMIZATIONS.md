@@ -11,13 +11,12 @@ artifacts, not the source of truth.
 - Original custom line base: `335f6cac7` (`v0.13.1` plus three upstream commits)
 - Current custom branch: `main`
 - Electron: upstream `43.8.4`
-- Upstream sync branch: `code-rebase/upstream-main-2026-11-03`
-- Upstream merge target: `upstream/main` at `d1eb6fe18` (2026-11-03)
-- Current patch baseline: `upstream/main` at `d1eb6fe18`
+- Last upstream sync: PR #1 (`custom/airi-main`) at `a0d1b2ce0`
+- Upstream merge target: `upstream/main` at `a0d1b2ce0` (2026-11-08)
+- Current patch baseline: `upstream/main` at `a0d1b2ce0`
 - Current patch artifact: `patches/airi-custom-upstream-main.patch`
 
-The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases;
-`v0.14.1` was already 31 commits behind `upstream/main` when the current patch was generated.
+The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases.
 The previous custom tree is preserved on `custom/airi-v0.12`. Upstream is merged deliberately
 on a sync branch; `main` remains the published fork branch until that sync branch is reviewed and
 accepted.
