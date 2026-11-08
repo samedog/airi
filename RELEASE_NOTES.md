@@ -1,4 +1,4 @@
-# WF/AIRI 0.13.1-r2
+# AIRI 0.13.1-r2
 
 Linux/Wayland-focused fork of Project AIRI, based on upstream `main` at `v0.13.1`.
 

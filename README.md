@@ -15,7 +15,7 @@
 <h1 align="center">Project AIRI</h1>
 
 > [!NOTE]
-> This is **samedog's WF/AIRI fork**, a Linux/Wayland-focused build of Project AIRI.
+> This is **samedog's AIRI fork**, a Linux/Wayland-focused build of Project AIRI.
 > It carries a focused custom patch set on the fork's `main` branch, based on upstream `v0.13.1`
 > commit `335f6cac7`, with a deliberate local sync against upstream `main` at `7ab1ecae4`
 > (2026-11-01). Upstream is not merged into `main` until the sync branch is reviewed and accepted.

@@ -1,7 +1,7 @@
-# WF/AIRI customizations
+# AIRI customizations
 
 This tree tracks upstream [moeru-ai/airi](https://github.com/moeru-ai/airi) with a small set of
-WF-specific changes. Keep custom work as commits on a branch. The patch files are review/export
+fork-specific changes. Keep custom work as commits on a branch. The patch files are review/export
 artifacts, not the source of truth.
 
 ## Base and current line
@@ -18,7 +18,7 @@ artifacts, not the source of truth.
 
 The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases;
 `v0.14.1` was already 31 commits behind `upstream/main` when the current patch was generated.
-The previous custom tree is preserved on `custom/wf-airi-v0.12`. Upstream is merged deliberately
+The previous custom tree is preserved on `custom/airi-v0.12`. Upstream is merged deliberately
 on a sync branch; `main` remains the published fork branch until that sync branch is reviewed and
 accepted.
 
@@ -274,7 +274,6 @@ Reason: the old shortcuts collide with KDE's Deselect and common editor bindings
 - Owned entries and general entries remain separated by the existing ownership rules.
 - Spark memory uses the existing IndexedDB store; no new memory schema, bridge event, or `input:text`
   routing is introduced.
-- FO76 and Warframe Spark prompts allow memory tools while still discouraging unrelated tool calls.
 
 ## Updating to a new upstream release
 
