@@ -17,6 +17,7 @@ import { ModelSettingsPanel } from '@proj-airi/stage-ui/components/scenarios/set
 import { useAnalytics } from '@proj-airi/stage-ui/composables'
 import { useSettings } from '@proj-airi/stage-ui/stores/settings'
 import { Alert, GhostButton } from '@proj-airi/ui'
+import { useEventListener } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -33,6 +34,7 @@ import {
   electronGodotStageViewSnapshotChanged,
   electronGodotStageViewStateError,
 } from '../../../../shared/eventa'
+import { getModelSettingsRuntimeContext, modelSettingsPreviewAnimationRequested, modelSettingsPreviewAnimationStopRequested } from '../../../../shared/model-settings-runtime'
 import { useModelSettingsRuntimeSnapshot } from '../../../composables/model-settings-runtime-snapshot'
 import { assertGodotSceneInputSupportedDisplayModel } from './godot-scene-input'
 import { createGodotViewPatchQueue } from './godot-view-patch-queue'
@@ -63,6 +65,18 @@ const switchingGodotStage = ref(false)
 const godotViewError = ref<StageViewErrorPayload>()
 const godotViewSnapshot = ref<StageViewSnapshotPayload | null>(null)
 const { runtimeSnapshot } = useModelSettingsRuntimeSnapshot()
+const modelSettingsRuntimeContext = getModelSettingsRuntimeContext()
+
+useEventListener(window, 'airi:vrm-animation-preview', (event) => {
+  const assetId = (event as CustomEvent<{ assetId?: string }>).detail?.assetId
+  if (!assetId)
+    return
+  void modelSettingsRuntimeContext.emit(modelSettingsPreviewAnimationRequested, { assetId })
+})
+
+useEventListener(window, 'airi:vrm-animation-preview-stop', () => {
+  void modelSettingsRuntimeContext.emit(modelSettingsPreviewAnimationStopRequested, undefined)
+})
 
 let sceneSyncGeneration = 0
 let godotSessionEpoch = 0

@@ -751,51 +751,31 @@ pages:
             title: No audio detected
             description: Make sure that you gave the permissions and that the audio source plays sound.
           actions:
+            refresh: Refresh sources
+            start: Start Beat Sync
             start_screen_capture: Start screen capture
             stop: Stop
           description: Select an audio source to detect beats from.
+          errors:
+            list_failed: Could not list audio sources
+            start_failed: Beat Sync could not start
+          source:
+            description: Choose the system monitor or microphone Beat Sync should listen to.
+            label: Audio source
+            placeholder: Select an audio source
           title: Audio source
-        beat_visualizer:
-          title: Beat visualizer
-        parameters:
-          advanced_parameters: Advanced Parameters
-          description: Tweak the beat detection parameters.
-          title: Parameters
-          parameters:
-            adaptive_threshold:
-              description: >-
-                Whether to apply adaptive thresholds based on signal variance
-                over time.
-              label: Adaptive threshold
-            buffer_duration:
-              description: Duration of the internal analysis buffer.
-              label: Buffer duration
-            envelope_filter_frequency:
-              description: >-
-                Frequency for the envelope filter applied to smooth energy
-                changes.
-              label: Envelope filter frequency
-            highpass_filter_frequency:
-              description: >-
-                Frequency for the highpass filter applied to reduce low
-                frequencies like sub-bass noises.
-              label: Highpass filter frequency
-            lowpass_filter_frequency:
-              description: >-
-                Frequency for the lowpass filter applied to reduce high
-                frequencies like vocals.
-              label: Lowpass filter frequency
-            min_beat_interval:
-              description: Maximum BPM or minimum interval between detected beats.
-              label: Max BPM / Min beat interval
-            sensitivity:
-              label: Sensitivity
-            spectral_flux:
-              description: Whether to enable spectral flux-based onset detection.
-              label: Spectral flux
-            warmup:
-              description: Whether to warm up before detecting beats for better accuracy.
-              label: Warmup
+        vibe:
+          title: Vibe
+          description: Energy follows loudness. Punch marks transients. Hit measures musical changes and drives dance speed.
+          energy: Energy
+          punch: Punch
+          hit: Hit
+          sensitivity:
+            label: Energy sensitivity
+            description: Raise this when loud, compressed tracks never reach the higher dance tiers.
+          hit_window:
+            label: Hit window
+            description: Number of recent HITs used to set the dance speed. Shorter reacts faster; longer is steadier.
     artistry:
       title: Artistry
       description: Image generation, scene background and drawing.
@@ -2761,6 +2741,105 @@ theme:
 title: Settings
 voices: Voice
 vrm:
+  model-parts:
+    title: Model parts
+    choose-category: Choose a category
+    choose-part: Choose a part
+    choose-part-to-move: Choose a part to move
+    choose-attachment: Toggle an attachment
+    move: Move
+    moving: Moving
+    move-title: 'Move {name}'
+    move-hint: Choose a new category
+    auto: Auto
+    cancel: Cancel
+    reset: Reset
+    reset-all: Reset all parts
+    back: Back
+    close: Close model parts
+    empty-category: No parts in this category yet
+    categories:
+      body: Body
+      outfit: Outfit
+      accessories: Accessories
+      extras: Extras
+      attachments: Attachments
+  attachments:
+    title: Attachments
+    description: Import GLB or VRM accessories. Each model keeps its own socket, transform, visibility, and covered mesh list. Files stay on this device.
+    model-title: Attachments for this model
+    library: Attachment library
+    library-description: Import and delete GLB or VRM accessories.
+    options: Attachment options
+    import: Import attachment
+    refresh: Refresh
+    remove: Remove
+    remove-from-model: Remove from model
+    delete-file: Delete file
+    empty: No attachments imported yet.
+    select-asset: Select an attachment
+    add: Add to model
+    show: Show
+    hide: Hide
+    bone: Socket bone
+    scale: Scale
+    position: Position
+    rotation: Rotation (deg)
+    hide-meshes: Hide mesh IDs while visible
+    hide-meshes-placeholder: BaseMesh_BODY.001, QuantumHacker_Suit.001
+  tabs:
+    model: Model
+    animations: Animations
+    attachments: Attachments
+  animation:
+    title: VRM Animations
+    description: Import .vrma files and assign one or more to each emotion or to the looping idle. A slot with multiple clips picks one at random without repeating the previous choice. Dance clips can be tagged Calm, Medium, or Intense, and Beat Sync vibe energy chooses among the tags. Idle defaults to the bundled AIRI animation. Dance is used while Beat Sync is active, and its speed follows the HIT pulse. Animations stay on this device and are not uploaded.
+    desktop-only: VRM animation imports are available in the desktop app.
+    import: Import .vrma
+    open-folder: Open animations folder
+    refresh: Refresh
+    library: Manage imported animations
+    library-description: Import, preview, and delete .vrma files.
+    preview: Preview
+    stop: Stop
+    delete: Delete
+    actions: Animation actions
+    search-placeholder: Search animations
+    search-empty: No animations match that search.
+    none: None
+    default-idle: AIRI default (bundled)
+    add: Add animation
+    add-more: Add another animation
+    remove: Remove animation
+    clear: Clear slot
+    energy: Clip intensity
+    energy-auto: Auto
+    energy-low: Calm
+    energy-medium: Medium
+    energy-high: Intense
+    bind-error: Select a VRM Avatar Model before assigning animations.
+    missing: 'Missing animation ({id})'
+    empty: No animations imported yet.
+    groups:
+      base: Base
+      speaking: Speaking
+      reactions: Reactions
+      other: Other
+    slots:
+      idle: Idle / Neutral
+      dance: Dance (Beat Sync)
+      happy: Happy
+      sad: Sad
+      angry: Angry
+      think: Think
+      surprised: Surprised
+      awkward: Awkward
+      question: Question
+      curious: Curious
+      excited: Excited
+      talk_calm: Talk calm
+      talk_cheeky: Talk cheeky
+      talk_upset: Talk upset
   fps:
     title: Frame rate limit
     description: Limit VRM rendering in the stage and model preview. Lower limits reduce GPU use without changing animation speed.

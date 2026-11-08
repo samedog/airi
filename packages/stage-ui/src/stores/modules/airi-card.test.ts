@@ -9,6 +9,7 @@ import { useDisplayModelCloudStore } from '../display-model-cloud'
 import { useDisplayModelsStore } from '../display-models'
 import { useProviderStore } from '../providers/provider'
 import { useSettingsStageModel } from '../settings/stage-model'
+import { useVrmAnimationCatalogStore } from '../vrm-animation-catalog'
 import { useAiriCardStore } from './airi-card'
 import { useConsciousnessStore } from './consciousness'
 import { useSpeechStore } from './speech'
@@ -735,6 +736,82 @@ describe('airi-card store', () => {
     expect(cardStore.activeCard?.extensions.airi.defaultAvatarModelId).toBeUndefined()
     expect(cardStore.selectedAvatarModelId).toBeUndefined()
     expect(useSettingsStageModel(testPinia).stageModelSelected).toBe('')
+  })
+
+  it('stores VRM animation bindings on the selected VRM Avatar Model', async () => {
+    const cardStore = useAiriCardStore()
+    const cardId = await cardStore.addCard({
+      name: 'VRM animation bindings',
+      version: '1.0.0',
+      description: 'Stores per-emotion VRM animation IDs.',
+      extensions: {
+        airi: {
+          avatarModels: [{
+            id: 'vrm-avatar-model',
+            displayModelId: 'preset-vrm-1',
+            type: 'vrm',
+            config: {},
+          }],
+          defaultAvatarModelId: 'vrm-avatar-model',
+          modules: {
+            consciousness: { provider: '', model: '' },
+            vision: { provider: '', model: '' },
+            speech: { provider: '', model: '', voice_id: '' },
+          },
+          agents: {},
+        },
+      },
+    }, 'scratch')
+    cardStore.activeCardId = cardId
+
+    await cardStore.initialize()
+
+    await expect(cardStore.updateVrmAnimationBindings(cardId, 'vrm-avatar-model', {
+      happy: [
+        { id: 'animation-happy-a', energy: 0.8 },
+        { id: 'animation-happy-b' },
+      ],
+      angry: [{ id: 'animation-angry' }],
+    })).resolves.toBe(true)
+
+    expect(cardStore.selectedAvatarModel).toMatchObject({
+      type: 'vrm',
+      config: {
+        animations: {
+          happy: [
+            { id: 'animation-happy-a', energy: 0.8 },
+            { id: 'animation-happy-b' },
+          ],
+          angry: [{ id: 'animation-angry' }],
+        },
+      },
+    })
+    await expect(cardStore.updateVrmAnimationBindings(cardId, 'missing-avatar-model', {
+      happy: [{ id: 'animation-happy-a' }],
+    })).resolves.toBe(false)
+
+    expect(cardStore.removeVrmAnimationAsset('animation-happy-a')).toBe(true)
+    expect(cardStore.selectedAvatarModel).toMatchObject({
+      type: 'vrm',
+      config: {
+        animations: {
+          happy: [{ id: 'animation-happy-b' }],
+          angry: [{ id: 'animation-angry' }],
+        },
+      },
+    })
+    expect(cardStore.removeVrmAnimationAsset('missing-animation')).toBe(false)
+
+    const catalog = useVrmAnimationCatalogStore()
+    catalog.replace([{
+      id: 'animation-standing-arguing',
+      name: 'Standing Arguing',
+      size: 1024,
+      importedAt: new Date(0).toISOString(),
+    }])
+    expect(cardStore.systemPrompt).toContain('VRM body motion library')
+    expect(cardStore.systemPrompt).toContain('- "Standing Arguing"')
+    expect(cardStore.systemPrompt).toContain('<|ACT {"emotion":"happy","motion":"Standing Arguing"}|>')
   })
 
   it('stores Live2D control policy on the selected Avatar Model', async () => {

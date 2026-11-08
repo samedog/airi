@@ -1,12 +1,22 @@
 <script setup lang="ts">
+import type { VrmAnimationAsset, VrmAnimationBindings, VrmAnimationClipBinding, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
+
 import type { ModelSettingsRuntimeSnapshot } from './runtime'
 
+import { errorMessageFrom } from '@moeru/std'
+import { VRM_ANIMATION_ENERGY_CALM, VRM_ANIMATION_ENERGY_INTENSE, VRM_ANIMATION_ENERGY_MEDIUM, vrmAnimationSlots as vrmAnimationSlotNames } from '@proj-airi/stage-shared/vrm-animations'
 import { useModelStore } from '@proj-airi/stage-ui-three'
 import { Button, Callout, GhostButton, SelectTab } from '@proj-airi/ui'
+import { useFileDialog } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import VrmAttachments from './vrm-attachments.vue'
+
+import { useAiriCardStore } from '../../../../stores/modules/airi-card'
+import { useSettings } from '../../../../stores/settings'
+import { useVrmAnimationsStore } from '../../../../stores/vrm-animations'
 import { Container, PropertyColor, PropertyNumber, PropertyPoint } from '../../../data-pane'
 import { ColorPalette } from '../../../widgets'
 
@@ -49,6 +59,308 @@ const {
   skyBoxIntensity,
 } = storeToRefs(modelStore)
 const controlsLocked = computed(() => props.runtimeSnapshot.controlsLocked)
+
+const airiCardStore = useAiriCardStore()
+const settingsStore = useSettings()
+const vrmAnimationsStore = useVrmAnimationsStore()
+const { activeCard, activeCardId, selectedAvatarModel } = storeToRefs(airiCardStore)
+const { stageModelSelected } = storeToRefs(settingsStore)
+const { assets: vrmAnimationAssets, error: vrmAnimationError, loading: vrmAnimationLoading, supported: vrmAnimationsSupported } = storeToRefs(vrmAnimationsStore)
+const vrmAnimationImportError = ref<string>()
+
+const effectiveVrmAvatarModel = computed(() => {
+  const selected = selectedAvatarModel.value
+  if (selected?.type === 'vrm')
+    return selected
+  return activeCard.value?.extensions.airi.avatarModels.find(model =>
+    model.type === 'vrm' && model.displayModelId === stageModelSelected.value,
+  )
+})
+
+const vrmAnimationBindingModelId = computed(() =>
+  stageModelSelected.value || effectiveVrmAvatarModel.value?.displayModelId,
+)
+
+const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
+  const avatarModel = effectiveVrmAvatarModel.value
+  const stored = avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
+  return vrmAnimationsStore.resolveBindings(vrmAnimationBindingModelId.value, stored)
+})
+
+const vrmSettingsTab = ref<'model' | 'animations' | 'attachments'>('model')
+const vrmSettingsTabOptions = computed<{ value: 'model' | 'animations' | 'attachments', label: string, icon: string }[]>(() => [
+  {
+    value: 'model',
+    label: t('settings.vrm.tabs.model'),
+    icon: 'i-solar:settings-bold-duotone',
+  },
+  {
+    value: 'animations',
+    label: t('settings.vrm.tabs.animations'),
+    icon: 'i-solar:play-bold-duotone',
+  },
+  {
+    value: 'attachments',
+    label: t('settings.vrm.tabs.attachments'),
+    icon: 'i-solar:paperclip-bold-duotone',
+  },
+])
+
+const VRM_ANIMATION_SLOT_GROUPS = [
+  { key: 'base', slots: ['idle', 'dance'], columns: 1 },
+  { key: 'speaking', slots: ['talk_calm', 'talk_cheeky', 'talk_upset'], columns: 1 },
+  { key: 'reactions', slots: ['happy', 'excited', 'sad', 'angry', 'surprised', 'think', 'awkward', 'question', 'curious'], columns: 2 },
+] as const satisfies readonly { key: string, slots: readonly VrmAnimationSlot[], columns: 1 | 2 }[]
+
+const vrmAnimationGroups = computed(() => {
+  const groups: {
+    key: string
+    label: string
+    columns: 1 | 2
+    slots: { slot: VrmAnimationSlot, label: string }[]
+  }[] = VRM_ANIMATION_SLOT_GROUPS.map(group => ({
+    key: group.key,
+    label: t(`settings.vrm.animation.groups.${group.key}`),
+    columns: group.columns,
+    slots: group.slots.map(slot => ({
+      slot,
+      label: t(`settings.vrm.animation.slots.${slot}`),
+    })),
+  }))
+
+  const grouped = new Set(VRM_ANIMATION_SLOT_GROUPS.flatMap(group => group.slots))
+  const other = vrmAnimationSlotNames
+    .filter(slot => !grouped.has(slot))
+    .map(slot => ({ slot, label: t(`settings.vrm.animation.slots.${slot}`) }))
+  if (other.length > 0) {
+    groups.push({
+      key: 'other',
+      label: t('settings.vrm.animation.groups.other'),
+      columns: 2,
+      slots: other,
+    })
+  }
+  return groups
+})
+
+const expandedVrmAnimationGroups = ref(new Set<string>())
+const vrmAnimationLibraryOpen = ref(false)
+const vrmAnimationLibraryQuery = ref('')
+const previewingVrmAnimationId = ref<string>()
+
+function toggleVrmAnimationGroup(key: string) {
+  const next = new Set(expandedVrmAnimationGroups.value)
+  if (next.has(key))
+    next.delete(key)
+  else
+    next.add(key)
+  expandedVrmAnimationGroups.value = next
+}
+
+function boundVrmAnimationSlotCount(group: { slots: { slot: VrmAnimationSlot }[] }) {
+  return group.slots.filter(slot => vrmAnimationIds(slot.slot).length > 0).length
+}
+
+const filteredVrmAnimationAssets = computed(() => {
+  const query = vrmAnimationLibraryQuery.value.trim().toLowerCase()
+  if (!query)
+    return vrmAnimationAssets.value
+  return vrmAnimationAssets.value.filter(asset => asset.name.toLowerCase().includes(query))
+})
+
+const vrmAnimationSelectOptions = computed(() => {
+  const counts = new Map<string, number>()
+  const options = vrmAnimationAssets.value.map((asset) => {
+    const count = (counts.get(asset.name) ?? 0) + 1
+    counts.set(asset.name, count)
+    return {
+      id: asset.id,
+      label: count > 1 ? `${asset.name} (${count})` : asset.name,
+    }
+  })
+  const knownIds = new Set(options.map(option => option.id))
+  const missing = [...new Set(
+    Object.values(vrmAnimationBindings.value).flatMap(clips => (clips ?? []).map(clip => clip.id)),
+  )]
+    .filter((id): id is string => !!id && !knownIds.has(id))
+    .map(id => ({
+      id,
+      label: t('settings.vrm.animation.missing', { id }),
+    }))
+  return [...options, ...missing]
+})
+
+const vrmAnimationOptionLabels = computed(() =>
+  new Map(vrmAnimationSelectOptions.value.map(option => [option.id, option.label])),
+)
+
+function vrmAnimationClips(slot: VrmAnimationSlot) {
+  return vrmAnimationBindings.value[slot] ?? []
+}
+
+function vrmAnimationIds(slot: VrmAnimationSlot) {
+  return vrmAnimationClips(slot).map(clip => clip.id)
+}
+
+function vrmAnimationLabel(id: string) {
+  return vrmAnimationOptionLabels.value.get(id) ?? id
+}
+
+function vrmAnimationEnergy(slot: VrmAnimationSlot, id: string) {
+  return vrmAnimationClips(slot).find(clip => clip.id === id)?.energy
+}
+
+function availableVrmAnimationOptions(slot: VrmAnimationSlot) {
+  const selected = new Set(vrmAnimationIds(slot))
+  return vrmAnimationSelectOptions.value.filter(option => !selected.has(option.id))
+}
+
+function onVrmAnimationAdd(slot: VrmAnimationSlot, event: Event) {
+  const select = event.target as HTMLSelectElement
+  const value = select.value
+  // Reset immediately so adding the same option twice still fires a change.
+  select.value = ''
+  if (value)
+    void addVrmAnimationBinding(slot, value)
+}
+
+const vrmAnimationDialog = useFileDialog({ accept: '.vrma', multiple: true, reset: true })
+vrmAnimationDialog.onChange(async (files) => {
+  if (!files)
+    return
+
+  vrmAnimationImportError.value = undefined
+  for (const file of Array.from(files)) {
+    try {
+      await vrmAnimationsStore.importAnimation(file)
+    }
+    catch (error) {
+      vrmAnimationImportError.value = errorMessageFrom(error)
+    }
+  }
+})
+
+function onVrmAnimationEnergyChange(slot: VrmAnimationSlot, id: string, event: Event) {
+  const select = event.target as HTMLSelectElement
+  void setVrmAnimationEnergy(slot, id, select.value === '' ? undefined : Number(select.value))
+}
+
+async function addVrmAnimationBinding(slot: VrmAnimationSlot, id: string) {
+  const current = vrmAnimationClips(slot)
+  if (current.some(clip => clip.id === id))
+    return
+  await setVrmAnimationBindings(slot, [...current, { id }])
+}
+
+async function removeVrmAnimationBinding(slot: VrmAnimationSlot, id: string) {
+  await setVrmAnimationBindings(slot, vrmAnimationClips(slot).filter(clip => clip.id !== id))
+}
+
+async function setVrmAnimationEnergy(slot: VrmAnimationSlot, id: string, energy: number | undefined) {
+  const clips = vrmAnimationClips(slot).map((clip) => {
+    if (clip.id !== id)
+      return clip
+    if (energy === undefined) {
+      const next = { ...clip }
+      delete next.energy
+      return next
+    }
+    return { ...clip, energy }
+  })
+  await setVrmAnimationBindings(slot, clips)
+}
+
+async function clearVrmAnimationBinding(slot: VrmAnimationSlot) {
+  await setVrmAnimationBindings(slot, [])
+}
+
+async function setVrmAnimationBindings(slot: VrmAnimationSlot, clips: VrmAnimationClipBinding[]) {
+  const modelId = vrmAnimationBindingModelId.value
+  if (!modelId) {
+    vrmAnimationImportError.value = t('settings.vrm.animation.bind-error')
+    return
+  }
+
+  const animations = { ...vrmAnimationBindings.value }
+  const normalized = clips.filter((clip, index, all) =>
+    !!clip.id && all.findIndex(candidate => candidate.id === clip.id) === index,
+  )
+  if (normalized.length > 0)
+    animations[slot] = normalized
+  else
+    delete animations[slot]
+
+  // The shared store is the source of truth for both windows. The card copy is
+  // best effort because the Models page can show a stage VRM that the active
+  // character has not linked yet.
+  vrmAnimationsStore.setBindings(modelId, animations)
+  vrmAnimationImportError.value = undefined
+
+  if (stageModelSelected.value) {
+    const selected = selectedAvatarModel.value
+    if (!selected || selected.type !== 'vrm' || selected.displayModelId !== stageModelSelected.value)
+      await airiCardStore.setActiveCardDefaultAvatarModel(stageModelSelected.value)
+  }
+
+  const avatarModel = selectedAvatarModel.value
+  if (avatarModel?.type === 'vrm' && avatarModel.displayModelId === modelId)
+    await airiCardStore.updateVrmAnimationBindings(activeCardId.value, avatarModel.id, animations)
+}
+
+async function openVrmAnimationFolder() {
+  try {
+    await vrmAnimationsStore.reveal()
+  }
+  catch (error) {
+    vrmAnimationImportError.value = errorMessageFrom(error)
+  }
+}
+
+function formatAnimationSize(bytes: number) {
+  if (bytes >= 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+function previewVrmAnimation(asset: VrmAnimationAsset) {
+  if (previewingVrmAnimationId.value === asset.id) {
+    stopPreviewVrmAnimation()
+    return
+  }
+
+  vrmAnimationImportError.value = undefined
+  previewingVrmAnimationId.value = asset.id
+  window.dispatchEvent(new CustomEvent('airi:vrm-animation-preview', {
+    detail: { assetId: asset.id },
+  }))
+}
+
+function stopPreviewVrmAnimation() {
+  previewingVrmAnimationId.value = undefined
+  window.dispatchEvent(new CustomEvent('airi:vrm-animation-preview-stop'))
+}
+
+async function deleteVrmAnimation(asset: VrmAnimationAsset) {
+  vrmAnimationImportError.value = undefined
+  if (previewingVrmAnimationId.value === asset.id)
+    stopPreviewVrmAnimation()
+  try {
+    await vrmAnimationsStore.removeAnimation(asset.id)
+    airiCardStore.removeVrmAnimationAsset(asset.id)
+  }
+  catch (error) {
+    vrmAnimationImportError.value = errorMessageFrom(error)
+  }
+}
+
+onMounted(() => {
+  void vrmAnimationsStore.refresh()
+})
+
+onUnmounted(() => {
+  if (previewingVrmAnimationId.value)
+    stopPreviewVrmAnimation()
+})
 // Bare numbers and an i18n'd unlimited label, matching the Live2D and Spine frame-rate controls.
 const fpsOptions = computed(() => [
   { value: 0, label: t('settings.vrm.fps.options.unlimited') },
@@ -90,186 +402,437 @@ const envOptions = computed(() => [
 </script>
 
 <template>
-  <Container :title="t('settings.vrm.fps.title')" icon="i-solar:speedometer-bold-duotone">
-    <p :class="['text-xs', 'text-neutral-500 dark:text-neutral-400']">
-      {{ t('settings.vrm.fps.description') }}
-    </p>
-    <SelectTab v-model="maxFps" :options="fpsOptions" size="sm" :class="['shrink-0']" />
-  </Container>
-  <Container
-    :title="t('settings.pages.models.sections.section.scene')"
-    icon="i-solar:people-nearby-bold-duotone"
-    :class="[
-      'rounded-xl',
-      'bg-white/80  dark:bg-black/75',
-      'backdrop-blur-lg',
-    ]"
-  >
-    <template v-if="allowExtractColors">
-      <ColorPalette class="mb-4 mt-2" :colors="palette.map(hex => ({ hex, name: hex }))" mx-auto />
-      <Button :disabled="controlsLocked || !canExtractColors" @click="$emit('extractColorsFromModel')">
-        {{ t('settings.vrm.theme-color-from-model.button-extract.title') }}
-      </Button>
-    </template>
-
-    <div grid="~ cols-5 gap-1" p-2 :class="settingsLockClass">
-      <PropertyPoint
-        v-model:x="modelOffset.x"
-        v-model:y="modelOffset.y"
-        v-model:z="modelOffset.z"
-        :disabled="controlsLocked"
-        label="Model Position"
-        :x-config="{ min: -modelSize.x * 2, max: modelSize.x * 2, step: modelSize.x / 10000, label: 'X', formatValue: val => val?.toFixed(4) }"
-        :y-config="{ min: -modelSize.y * 2, max: modelSize.y * 2, step: modelSize.y / 10000, label: 'Y', formatValue: val => val?.toFixed(4) }"
-        :z-config="{ min: -modelSize.z * 2, max: modelSize.z * 2, step: modelSize.z / 10000, label: 'Z', formatValue: val => val?.toFixed(4) }"
-      />
-      <PropertyNumber
-        v-model="cameraFOV"
-        :config="{ min: 1, max: 180, step: 1, label: t('settings.vrm.scale-and-position.fov'), disabled: controlsLocked }"
-        :label="t('settings.vrm.scale-and-position.fov')"
-      />
-      <PropertyNumber
-        v-model="cameraDistance"
-        :config="{ min: modelSize.z, max: modelSize.z * 20, step: modelSize.z / 100, label: t('settings.vrm.scale-and-position.camera-distance'), formatValue: val => val?.toFixed(4), disabled: controlsLocked }"
-        :label="t('settings.vrm.scale-and-position.camera-distance')"
-      />
-      <PropertyNumber
-        v-model="modelRotationY"
-        :config="{ min: -180, max: 180, step: 1, label: t('settings.vrm.scale-and-position.rotation-y'), disabled: controlsLocked }"
-        :label="t('settings.vrm.scale-and-position.rotation-y')"
-      />
-
-      <!-- Set eye tracking mode -->
-      <div class="text-xs">
-        {{ t('settings.vrm.scale-and-position.eye-tracking-mode.title') }}:
-      </div>
-      <div />
-      <template v-for="option in trackingOptions" :key="option.value">
-        <GhostButton
-          :class="[option.class, 'w-auto']"
-          :disabled="controlsLocked"
-          size="sm"
-          :active="trackingMode === option.value"
-          :label="option.label"
-          @click="trackingMode = option.value"
-        />
+  <SelectTab
+    v-model="vrmSettingsTab"
+    :options="vrmSettingsTabOptions"
+    size="sm"
+    :class="['mb-2']"
+  />
+  <template v-if="vrmSettingsTab === 'model'">
+    <Container :title="t('settings.vrm.fps.title')" icon="i-solar:speedometer-bold-duotone">
+      <p :class="['text-xs', 'text-neutral-500 dark:text-neutral-400']">
+        {{ t('settings.vrm.fps.description') }}
+      </p>
+      <SelectTab v-model="maxFps" :options="fpsOptions" size="sm" :class="['shrink-0']" />
+    </Container>
+  </template>
+  <template v-if="vrmSettingsTab === 'attachments'">
+    <VrmAttachments :model-id="vrmAnimationBindingModelId ?? ''" />
+  </template>
+  <template v-if="vrmSettingsTab === 'animations'">
+    <Container
+      :title="t('settings.vrm.animation.title')"
+      icon="i-solar:play-bold-duotone"
+      :class="[
+        'rounded-xl',
+        'bg-white/80  dark:bg-black/75',
+        'backdrop-blur-lg',
+      ]"
+    >
+      <p :class="['text-xs', 'text-neutral-500 dark:text-neutral-400']">
+        {{ t('settings.vrm.animation.description') }}
+      </p>
+      <Callout v-if="!vrmAnimationsSupported" :label="t('settings.vrm.animation.title')">
+        <div :class="['text-sm', 'text-neutral-600 dark:text-neutral-400']">
+          {{ t('settings.vrm.animation.desktop-only') }}
+        </div>
+      </Callout>
+      <template v-else>
+        <div :class="['mt-2', 'flex', 'flex-wrap', 'items-center', 'gap-2']">
+          <Button @click="vrmAnimationDialog.open()">
+            {{ t('settings.vrm.animation.import') }}
+          </Button>
+          <GhostButton size="sm" @click="openVrmAnimationFolder()">
+            {{ t('settings.vrm.animation.open-folder') }}
+          </GhostButton>
+          <GhostButton size="sm" :disabled="vrmAnimationLoading" @click="vrmAnimationsStore.refresh()">
+            {{ t('settings.vrm.animation.refresh') }}
+          </GhostButton>
+        </div>
+        <p v-if="vrmAnimationImportError || vrmAnimationError" :class="['mt-2', 'text-xs', 'text-red-500']">
+          {{ vrmAnimationImportError || vrmAnimationError }}
+        </p>
+        <div class="mt-3 flex flex-col gap-4">
+          <section
+            v-for="group in vrmAnimationGroups"
+            :key="group.key"
+            class="flex flex-col gap-2"
+          >
+            <button
+              type="button"
+              :aria-expanded="expandedVrmAnimationGroups.has(group.key)"
+              class="w-full flex items-center gap-2 rounded-lg py-1 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900/40"
+              @click="toggleVrmAnimationGroup(group.key)"
+            >
+              <span
+                class="i-solar:alt-arrow-down-linear shrink-0 text-base text-neutral-500 transition-transform duration-200 dark:text-neutral-400"
+                :class="expandedVrmAnimationGroups.has(group.key) ? 'rotate-180' : ''"
+                aria-hidden="true"
+              />
+              <span class="text-xs text-neutral-500 font-semibold tracking-wide uppercase dark:text-neutral-400">
+                {{ group.label }}
+              </span>
+              <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                {{ boundVrmAnimationSlotCount(group) }}/{{ group.slots.length }}
+              </span>
+            </button>
+            <div
+              v-if="expandedVrmAnimationGroups.has(group.key)"
+              :class="group.columns === 2 ? 'grid gap-2 sm:grid-cols-2' : 'flex flex-col gap-2'"
+            >
+              <div
+                v-for="slot in group.slots"
+                :key="slot.slot"
+                class="border-2 border-neutral-200 rounded-xl px-3 py-2 dark:border-neutral-800"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <span class="text-sm font-medium">{{ slot.label }}</span>
+                  <select
+                    value=""
+                    :aria-label="`${slot.label}: ${t('settings.vrm.animation.add')}`"
+                    class="h-8 min-w-0 w-32 shrink-0 border border-neutral-300 rounded-lg bg-white px-2 text-xs text-neutral-700 outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+                    @change="onVrmAnimationAdd(slot.slot, $event)"
+                  >
+                    <option value="">
+                      {{ vrmAnimationIds(slot.slot).length > 0 ? t('settings.vrm.animation.add-more') : t('settings.vrm.animation.add') }}
+                    </option>
+                    <option
+                      v-for="option in availableVrmAnimationOptions(slot.slot)"
+                      :key="option.id"
+                      :value="option.id"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </div>
+                <div v-if="vrmAnimationIds(slot.slot).length > 0" class="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span
+                    v-for="clip in vrmAnimationClips(slot.slot)"
+                    :key="clip.id"
+                    class="max-w-full inline-flex items-center gap-1 border-2 border-neutral-200 rounded-full bg-neutral-50 py-1 pl-2.5 pr-1 text-xs text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+                  >
+                    <span class="min-w-0 truncate">{{ vrmAnimationLabel(clip.id) }}</span>
+                    <select
+                      v-if="slot.slot === 'dance'"
+                      :value="vrmAnimationEnergy(slot.slot, clip.id)?.toString() ?? ''"
+                      :aria-label="t('settings.vrm.animation.energy')"
+                      class="h-6 shrink-0 border border-neutral-300 rounded-md bg-white px-1 text-xs text-neutral-600 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                      @change="onVrmAnimationEnergyChange(slot.slot, clip.id, $event)"
+                    >
+                      <option value="">{{ t('settings.vrm.animation.energy-auto') }}</option>
+                      <option :value="VRM_ANIMATION_ENERGY_CALM">{{ t('settings.vrm.animation.energy-low') }}</option>
+                      <option :value="VRM_ANIMATION_ENERGY_MEDIUM">{{ t('settings.vrm.animation.energy-medium') }}</option>
+                      <option :value="VRM_ANIMATION_ENERGY_INTENSE">{{ t('settings.vrm.animation.energy-high') }}</option>
+                    </select>
+                    <button
+                      type="button"
+                      :title="t('settings.vrm.animation.remove')"
+                      :aria-label="t('settings.vrm.animation.remove')"
+                      class="size-4 flex shrink-0 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-200 dark:text-neutral-400 hover:text-neutral-800 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                      @click.stop.prevent="removeVrmAnimationBinding(slot.slot, clip.id)"
+                    >
+                      ×
+                    </button>
+                  </span>
+                  <button
+                    type="button"
+                    class="text-xs text-primary-500 underline"
+                    @click.stop.prevent="clearVrmAnimationBinding(slot.slot)"
+                  >
+                    {{ t('settings.vrm.animation.clear') }}
+                  </button>
+                </div>
+                <p v-else class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                  {{ slot.slot === 'idle' ? t('settings.vrm.animation.default-idle') : t('settings.vrm.animation.none') }}
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+        <section class="mt-5 border-2 border-neutral-200 rounded-xl bg-neutral-50/70 dark:border-neutral-800 dark:bg-neutral-900/40">
+          <button
+            type="button"
+            :aria-expanded="vrmAnimationLibraryOpen"
+            class="w-full flex items-center gap-3 px-3 py-3 text-left"
+            @click="vrmAnimationLibraryOpen = !vrmAnimationLibraryOpen"
+          >
+            <span class="size-9 flex shrink-0 items-center justify-center rounded-lg bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-300">
+              <span class="i-solar:folder-with-files-bold-duotone text-lg" aria-hidden="true" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-medium">{{ t('settings.vrm.animation.library') }}</span>
+                <span class="border border-neutral-200 rounded-full bg-white px-2 py-0.5 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                  {{ vrmAnimationAssets.length }}
+                </span>
+              </span>
+              <span class="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">
+                {{ t('settings.vrm.animation.library-description') }}
+              </span>
+            </span>
+            <span
+              class="i-solar:alt-arrow-down-linear shrink-0 text-lg text-neutral-500 transition-transform duration-200 dark:text-neutral-400"
+              :class="vrmAnimationLibraryOpen ? 'rotate-180' : ''"
+              aria-hidden="true"
+            />
+          </button>
+          <div v-if="vrmAnimationLibraryOpen" class="flex flex-col gap-2 border-t border-neutral-200 px-3 pb-3 pt-3 dark:border-neutral-800">
+            <input
+              v-if="vrmAnimationAssets.length > 8"
+              v-model="vrmAnimationLibraryQuery"
+              type="search"
+              :placeholder="t('settings.vrm.animation.search-placeholder')"
+              class="h-9 w-full border-2 border-neutral-200 rounded-xl bg-white px-3 text-sm text-neutral-700 outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+            >
+            <p v-if="vrmAnimationAssets.length === 0" class="text-xs text-neutral-500 dark:text-neutral-400">
+              {{ t('settings.vrm.animation.empty') }}
+            </p>
+            <p v-else-if="filteredVrmAnimationAssets.length === 0" class="text-xs text-neutral-500 dark:text-neutral-400">
+              {{ t('settings.vrm.animation.search-empty') }}
+            </p>
+            <div v-else class="flex flex-col gap-1">
+              <div
+                v-for="asset in filteredVrmAnimationAssets"
+                :key="asset.id"
+                class="flex items-center gap-3 border border-neutral-200 rounded-lg px-3 py-2 dark:border-neutral-800"
+              >
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm">
+                    {{ asset.name }}
+                  </div>
+                  <div class="text-xs text-neutral-500 dark:text-neutral-400">
+                    {{ formatAnimationSize(asset.size) }}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  :title="t('settings.vrm.animation.preview')"
+                  :aria-label="`${t('settings.vrm.animation.preview')} ${asset.name}`"
+                  :class="[
+                    'shrink-0',
+                    'rounded-lg',
+                    'border',
+                    'border-neutral-200',
+                    'px-2',
+                    'py-1',
+                    'text-xs',
+                    'text-primary-500',
+                    'hover:bg-neutral-100',
+                    'dark:border-neutral-700',
+                    'dark:hover:bg-neutral-800',
+                    previewingVrmAnimationId === asset.id ? 'bg-primary-50 dark:bg-primary-900/20' : '',
+                  ]"
+                  @click.stop.prevent="previewVrmAnimation(asset)"
+                >
+                  {{ previewingVrmAnimationId === asset.id ? t('settings.vrm.animation.stop') : t('settings.vrm.animation.preview') }}
+                </button>
+                <details class="relative shrink-0">
+                  <summary
+                    :aria-label="t('settings.vrm.animation.actions')"
+                    class="size-8 flex cursor-pointer list-none items-center justify-center border border-neutral-200 rounded-lg text-neutral-600 dark:border-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    ⋯
+                  </summary>
+                  <div class="absolute right-0 z-20 mt-1 w-44 overflow-hidden border-2 border-neutral-200 rounded-xl bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+                    <button
+                      type="button"
+                      class="block w-full px-3 py-2 text-left text-xs text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                      @click.stop.prevent="openVrmAnimationFolder()"
+                    >
+                      {{ t('settings.vrm.animation.open-folder') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="block w-full px-3 py-2 text-left text-xs text-red-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      @click.stop.prevent="deleteVrmAnimation(asset)"
+                    >
+                      {{ t('settings.vrm.animation.delete') }}
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+    </Container>
+  </template>
+  <template v-if="vrmSettingsTab === 'model'">
+    <Container
+      :title="t('settings.pages.models.sections.section.scene')"
+      icon="i-solar:people-nearby-bold-duotone"
+      :class="[
+        'rounded-xl',
+        'bg-white/80  dark:bg-black/75',
+        'backdrop-blur-lg',
+      ]"
+    >
+      <template v-if="allowExtractColors">
+        <ColorPalette class="mb-4 mt-2" :colors="palette.map(hex => ({ hex, name: hex }))" mx-auto />
+        <Button :disabled="controlsLocked || !canExtractColors" @click="$emit('extractColorsFromModel')">
+          {{ t('settings.vrm.theme-color-from-model.button-extract.title') }}
+        </Button>
       </template>
 
-      <PropertyNumber
-        v-model="directionalLightRotation.x"
-        :config="{ min: -180, max: 180, step: 1, label: 'RotationXDeg', formatValue: val => val?.toFixed(0), disabled: controlsLocked }"
-        label="Directional Light Rotation - X"
-      />
-      <PropertyNumber
-        v-model="directionalLightRotation.y"
-        :config="{ min: -180, max: 180, step: 1, label: 'RotationYDeg', formatValue: val => val?.toFixed(0), disabled: controlsLocked }"
-        label="Directional Light Rotation - Y"
-      />
-      <PropertyColor
-        v-model="directionalLightColor"
-        :disabled="controlsLocked"
-        label="Directional Light Color"
-      />
+      <div grid="~ cols-5 gap-1" p-2 :class="settingsLockClass">
+        <PropertyPoint
+          v-model:x="modelOffset.x"
+          v-model:y="modelOffset.y"
+          v-model:z="modelOffset.z"
+          :disabled="controlsLocked"
+          label="Model Position"
+          :x-config="{ min: -modelSize.x * 2, max: modelSize.x * 2, step: modelSize.x / 10000, label: 'X', formatValue: val => val?.toFixed(4) }"
+          :y-config="{ min: -modelSize.y * 2, max: modelSize.y * 2, step: modelSize.y / 10000, label: 'Y', formatValue: val => val?.toFixed(4) }"
+          :z-config="{ min: -modelSize.z * 2, max: modelSize.z * 2, step: modelSize.z / 10000, label: 'Z', formatValue: val => val?.toFixed(4) }"
+        />
+        <PropertyNumber
+          v-model="cameraFOV"
+          :config="{ min: 1, max: 180, step: 1, label: t('settings.vrm.scale-and-position.fov'), disabled: controlsLocked }"
+          :label="t('settings.vrm.scale-and-position.fov')"
+        />
+        <PropertyNumber
+          v-model="cameraDistance"
+          :config="{ min: modelSize.z, max: modelSize.z * 20, step: modelSize.z / 100, label: t('settings.vrm.scale-and-position.camera-distance'), formatValue: val => val?.toFixed(4), disabled: controlsLocked }"
+          :label="t('settings.vrm.scale-and-position.camera-distance')"
+        />
+        <PropertyNumber
+          v-model="modelRotationY"
+          :config="{ min: -180, max: 180, step: 1, label: t('settings.vrm.scale-and-position.rotation-y'), disabled: controlsLocked }"
+          :label="t('settings.vrm.scale-and-position.rotation-y')"
+        />
 
-      <PropertyNumber
-        v-model="directionalLightIntensity"
-        :config="{ min: 0, max: 10, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
-        label="Directional Light Intensity"
-      />
+        <!-- Set eye tracking mode -->
+        <div class="text-xs">
+          {{ t('settings.vrm.scale-and-position.eye-tracking-mode.title') }}:
+        </div>
+        <div />
+        <template v-for="option in trackingOptions" :key="option.value">
+          <GhostButton
+            :class="[option.class, 'w-auto']"
+            :disabled="controlsLocked"
+            size="sm"
+            :active="trackingMode === option.value"
+            :label="option.label"
+            @click="trackingMode = option.value"
+          />
+        </template>
 
-      <PropertyNumber
-        v-model="ambientLightIntensity"
-        :config="{ min: 0, max: 10, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
-        label="Ambient Light Intensity"
-      />
-      <PropertyColor
-        v-model="ambientLightColor"
-        :disabled="controlsLocked"
-        label="Ambient Light Color"
-      />
-    </div>
-    <div>
-      <div
-        :class="[
-          'px-2',
-          'pt-2',
-          'text-xs',
-          'text-neutral-500',
-          'dark:text-neutral-400',
-        ]"
-      >
-        Environment
+        <PropertyNumber
+          v-model="directionalLightRotation.x"
+          :config="{ min: -180, max: 180, step: 1, label: 'RotationXDeg', formatValue: val => val?.toFixed(0), disabled: controlsLocked }"
+          label="Directional Light Rotation - X"
+        />
+        <PropertyNumber
+          v-model="directionalLightRotation.y"
+          :config="{ min: -180, max: 180, step: 1, label: 'RotationYDeg', formatValue: val => val?.toFixed(0), disabled: controlsLocked }"
+          label="Directional Light Rotation - Y"
+        />
+        <PropertyColor
+          v-model="directionalLightColor"
+          :disabled="controlsLocked"
+          label="Directional Light Color"
+        />
+
+        <PropertyNumber
+          v-model="directionalLightIntensity"
+          :config="{ min: 0, max: 10, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
+          label="Directional Light Intensity"
+        />
+
+        <PropertyNumber
+          v-model="ambientLightIntensity"
+          :config="{ min: 0, max: 10, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
+          label="Ambient Light Intensity"
+        />
+        <PropertyColor
+          v-model="ambientLightColor"
+          :disabled="controlsLocked"
+          label="Ambient Light Color"
+        />
       </div>
-      <div :class="['p-2', ...settingsLockClass]">
-        <SelectTab v-model="envSelect" :options="envOptions" :disabled="controlsLocked" size="sm" />
-      </div>
-      <div v-if="envSelect === 'hemisphere'">
-        <!-- hemisphere settings -->
-        <div grid="~ cols-5 gap-1" p-2 :class="settingsLockClass">
-          <PropertyNumber
-            v-model="hemisphereLightIntensity"
-            :config="{ min: 0, max: 10, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
-            label="Hemisphere Light Intensity"
-          />
-          <PropertyColor
-            v-model="hemisphereSkyColor"
-            :disabled="controlsLocked"
-            label="Hemisphere Sky Color"
-          />
-          <PropertyColor
-            v-model="hemisphereGroundColor"
-            :disabled="controlsLocked"
-            label="Hemisphere Ground Color"
-          />
-        </div>
-      </div>
-      <div v-else>
-        <!-- skybox settings -->
-        <div grid="~ cols-5 gap-1" p-2 :class="settingsLockClass">
-          <PropertyNumber
-            v-model="skyBoxIntensity"
-            :config="{ min: 0, max: 1, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
-            :label="t('settings.vrm.skybox.skybox-intensity')"
-          />
-        </div>
-      </div>
-    </div>
-  </Container>
-  <Container
-    :title="t('settings.vrm.change-model.title')"
-    icon="i-solar:magic-stick-3-bold-duotone"
-    inner-class="text-sm"
-    :class="[
-      'rounded-xl',
-      'bg-white/80  dark:bg-black/75',
-      'backdrop-blur-lg',
-    ]"
-  >
-    <Callout :label="t('settings.vrm.scale-and-position.model-info-title')">
       <div>
-        <div class="text-sm text-neutral-600 space-y-1 dark:text-neutral-400">
-          <div class="flex justify-between">
-            <span>{{ t('settings.vrm.scale-and-position.model-info-x') }}</span>
-            <span>{{ modelSize.x.toFixed(4) }}</span>
+        <div
+          :class="[
+            'px-2',
+            'pt-2',
+            'text-xs',
+            'text-neutral-500',
+            'dark:text-neutral-400',
+          ]"
+        >
+          Environment
+        </div>
+        <div :class="['p-2', ...settingsLockClass]">
+          <SelectTab v-model="envSelect" :options="envOptions" :disabled="controlsLocked" size="sm" />
+        </div>
+        <div v-if="envSelect === 'hemisphere'">
+          <!-- hemisphere settings -->
+          <div grid="~ cols-5 gap-1" p-2 :class="settingsLockClass">
+            <PropertyNumber
+              v-model="hemisphereLightIntensity"
+              :config="{ min: 0, max: 10, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
+              label="Hemisphere Light Intensity"
+            />
+            <PropertyColor
+              v-model="hemisphereSkyColor"
+              :disabled="controlsLocked"
+              label="Hemisphere Sky Color"
+            />
+            <PropertyColor
+              v-model="hemisphereGroundColor"
+              :disabled="controlsLocked"
+              label="Hemisphere Ground Color"
+            />
           </div>
-          <div class="flex justify-between">
-            <span>{{ t('settings.vrm.scale-and-position.model-info-y') }}</span>
-            <span>{{ modelSize.y.toFixed(4) }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span>{{ t('settings.vrm.scale-and-position.model-info-z') }}</span>
-            <span>{{ modelSize.z.toFixed(4) }}</span>
+        </div>
+        <div v-else>
+          <!-- skybox settings -->
+          <div grid="~ cols-5 gap-1" p-2 :class="settingsLockClass">
+            <PropertyNumber
+              v-model="skyBoxIntensity"
+              :config="{ min: 0, max: 1, step: 0.01, label: 'Intensity', disabled: controlsLocked }"
+              :label="t('settings.vrm.skybox.skybox-intensity')"
+            />
           </div>
         </div>
       </div>
-    </Callout>
-    <Callout
-      theme="lime"
-      label="Tips!"
+    </Container>
+    <Container
+      :title="t('settings.vrm.change-model.title')"
+      icon="i-solar:magic-stick-3-bold-duotone"
+      inner-class="text-sm"
+      :class="[
+        'rounded-xl',
+        'bg-white/80  dark:bg-black/75',
+        'backdrop-blur-lg',
+      ]"
     >
-      <div class="text-sm text-neutral-600 space-y-1 dark:text-neutral-400">
-        {{ t('settings.vrm.scale-and-position.tips') }}
-      </div>
-    </Callout>
-  </Container>
+      <Callout :label="t('settings.vrm.scale-and-position.model-info-title')">
+        <div>
+          <div class="text-sm text-neutral-600 space-y-1 dark:text-neutral-400">
+            <div class="flex justify-between">
+              <span>{{ t('settings.vrm.scale-and-position.model-info-x') }}</span>
+              <span>{{ modelSize.x.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>{{ t('settings.vrm.scale-and-position.model-info-y') }}</span>
+              <span>{{ modelSize.y.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>{{ t('settings.vrm.scale-and-position.model-info-z') }}</span>
+              <span>{{ modelSize.z.toFixed(4) }}</span>
+            </div>
+          </div>
+        </div>
+      </Callout>
+      <Callout
+        theme="lime"
+        label="Tips!"
+      >
+        <div class="text-sm text-neutral-600 space-y-1 dark:text-neutral-400">
+          {{ t('settings.vrm.scale-and-position.tips') }}
+        </div>
+      </Callout>
+    </Container>
+  </template>
 </template>

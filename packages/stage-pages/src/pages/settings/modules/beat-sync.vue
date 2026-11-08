@@ -1,145 +1,128 @@
 <script setup lang="ts">
-import type { BeatSyncDetectorState } from '@proj-airi/stage-shared/beat-sync'
+import type { BeatSyncAudioSource, BeatSyncDetectorState, BeatSyncVibe } from '@proj-airi/stage-shared/beat-sync'
 
+import { errorMessageFrom } from '@moeru/std'
 import {
-  DEFAULT_BEAT_SYNC_PARAMETERS,
-  getBeatSyncInputByteFrequencyData,
   getBeatSyncState,
-  listenBeatSyncBeatSignal,
+  listBeatSyncAudioSources,
   listenBeatSyncStateChange,
+  listenBeatSyncVibeSignal,
+  MAX_BEAT_SYNC_VIBE_ENERGY_GAIN,
+  MIN_BEAT_SYNC_VIBE_ENERGY_GAIN,
   toggleBeatSync,
-  updateBeatSyncParameters,
+  updateBeatSyncVibeParameters,
 } from '@proj-airi/stage-shared/beat-sync'
-import { AudioSpectrumVisualizer } from '@proj-airi/stage-ui/components'
+import { MAX_BEAT_SYNC_HIT_WINDOW, MIN_BEAT_SYNC_HIT_WINDOW } from '@proj-airi/stage-ui/constants/beat-sync-pulse'
 import { useSettingsBeatSync } from '@proj-airi/stage-ui/stores/settings'
-import { Alert, Button, FieldCheckbox, FieldRange, SelectTab, SettingsCard } from '@proj-airi/ui'
-import { createTimeline } from 'animejs'
-import { nanoid } from 'nanoid'
+import { Alert, Button, FieldRange, FieldSelect, SettingsCard } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
-import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const state = ref<BeatSyncDetectorState>()
-const frequencies = ref<number[]>([])
-const totalFreqHistory = ref<number[]>([])
-const isUpdatingFrequencies = ref(false)
 const beatSyncSettings = useSettingsBeatSync()
-const { parameters, spectrumScale } = storeToRefs(beatSyncSettings)
-const spectrumScaleOptions = [
-  { label: 'Linear', value: 'linear' as const, icon: 'i-solar:chart-2-bold-duotone' },
-  { label: 'Logarithm', value: 'logarithm' as const, icon: 'i-solar:chart-bold-duotone' },
-]
+const { audioSourceId, vibeEnergyGain, dancePulseHits } = storeToRefs(beatSyncSettings)
+const audioSources = ref<BeatSyncAudioSource[]>([])
+const isLoadingAudioSources = ref(false)
+const starting = ref(false)
+const audioSourceError = ref<string>()
+const startError = ref<string>()
+const vibe = ref<BeatSyncVibe>({ energy: 0, punch: 0, hit: 0 })
+const energyPercent = computed(() => Math.round(vibe.value.energy * 100))
+const punchPercent = computed(() => Math.round(vibe.value.punch * 100))
+const hitPercent = computed(() => Math.round(vibe.value.hit * 100))
+const audioSourceOptions = computed(() => audioSources.value.map(source => ({
+  label: source.label,
+  value: source.id,
+  description: source.description,
+})))
 
 const { t } = useI18n()
 
-const beatsHistory = ref<Array<{
-  id: string
-  energy: number
-  normalizedEnergy: number
-}>>([])
-
-watch([state, parameters], ([newState, newParameters]) => {
-  if (newState?.isActive) {
-    updateBeatSyncParameters(toRaw(newParameters))
-  }
+watch([state, vibeEnergyGain], ([newState, newEnergyGain]) => {
+  if (newState?.isActive)
+    updateBeatSyncVibeParameters({ energyGain: newEnergyGain })
 }, { deep: true, immediate: true })
 
-function normalizeEnergy(energy: number) {
-  const base = 2
-  const a = 0.5
-  return ((base ** energy - 1) / (base - 1)) ** a
-}
+async function loadAudioSources() {
+  isLoadingAudioSources.value = true
+  audioSourceError.value = undefined
 
-function onRippleEnter(el: Element, done: () => void) {
-  const beatId = (el as HTMLElement).dataset.beatId
-  createTimeline()
-    .set(el, {
-      opacity: 1,
-      scale: 0,
-    })
-    .add(el, {
-      opacity: 0,
-      scale: 1,
-      duration: 2000,
-      delay: 0,
-      ease: 'out(5)',
-      onComplete: () => {
-        if (!beatId)
-          return
+  try {
+    const sources = await listBeatSyncAudioSources()
+    audioSources.value = sources
 
-        const idx = beatsHistory.value.findIndex(b => b.id === beatId)
-        if (idx >= 0)
-          beatsHistory.value.splice(idx, 1)
-
-        done()
-      },
-    })
-}
-
-function resetDefaultParameters() {
-  parameters.value = { ...DEFAULT_BEAT_SYNC_PARAMETERS }
-}
-
-async function updateFrequencies() {
-  frequencies.value = Array.from(await getBeatSyncInputByteFrequencyData())
-  totalFreqHistory.value.push(frequencies.value.reduce((a, b) => a + b, 0))
-
-  while (totalFreqHistory.value.length > 50)
-    totalFreqHistory.value.shift()
-
-  if (isUpdatingFrequencies.value) {
-    requestAnimationFrame(updateFrequencies)
+    if (audioSourceId.value && !sources.some(source => source.id === audioSourceId.value))
+      audioSourceId.value = ''
   }
-  else {
-    frequencies.value = frequencies.value.map(() => 0)
-    totalFreqHistory.value = []
+  catch (error) {
+    audioSources.value = []
+    audioSourceError.value = errorMessageFrom(error) ?? 'Unable to list audio sources'
+  }
+  finally {
+    isLoadingAudioSources.value = false
   }
 }
 
-const noAudioDetected = computed(() => {
-  if (!isUpdatingFrequencies.value)
-    return false
+async function startBeatSync() {
+  startError.value = undefined
+  if (!audioSourceId.value || state.value?.isActive || starting.value)
+    return
 
-  if (totalFreqHistory.value.length < 50)
-    return false
+  starting.value = true
+  try {
+    await toggleBeatSync(true, audioSourceId.value)
+  }
+  catch (error) {
+    startError.value = errorMessageFrom(error) ?? 'Failed to start Beat Sync'
+  }
+  finally {
+    starting.value = false
+  }
+}
 
-  return totalFreqHistory.value.reduce((a, b) => a + b, 0) === 0
+async function stopBeatSync() {
+  startError.value = undefined
+
+  try {
+    await toggleBeatSync(false)
+  }
+  catch (error) {
+    startError.value = errorMessageFrom(error) ?? 'Failed to stop Beat Sync'
+  }
+}
+
+watch(audioSourceId, (next, previous) => {
+  if (next !== previous && state.value?.isActive)
+    void stopBeatSync()
 })
 
-watch(state, async (newState) => {
-  if (newState?.isActive) {
-    if (!isUpdatingFrequencies.value) {
-      isUpdatingFrequencies.value = true
-      updateFrequencies()
-    }
-  }
-  else {
-    isUpdatingFrequencies.value = false
-  }
-}, { immediate: true, deep: true })
-
 onMounted(() => {
-  getBeatSyncState().then(initialState => state.value = initialState)
+  void loadAudioSources()
+  getBeatSyncState()
+    .then(initialState => state.value = initialState)
+    .catch(error => startError.value = errorMessageFrom(error) ?? 'Could not read Beat Sync state')
 
   const removeHandlerFns = [
     listenBeatSyncStateChange((newState) => {
       state.value = { ...newState }
+      if (newState.isActive) {
+        // A start can finish after the request timeout. The state event is the
+        // source of truth, so clear the stale timeout error when it arrives.
+        starting.value = false
+        startError.value = undefined
+      }
+      else {
+        vibe.value = { energy: 0, punch: 0, hit: 0 }
+      }
     }),
-    listenBeatSyncBeatSignal(({ energy }) => {
-      beatsHistory.value.unshift({
-        id: nanoid(),
-        energy,
-        normalizedEnergy: normalizeEnergy(energy),
-      })
+    listenBeatSyncVibeSignal((next) => {
+      vibe.value = next
     }),
   ]
 
   const removeHandlers = () => removeHandlerFns.forEach(fn => fn())
   onUnmounted(() => removeHandlers())
-})
-
-onUnmounted(() => {
-  isUpdatingFrequencies.value = false
 })
 </script>
 
@@ -157,181 +140,135 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <FieldSelect
+            v-model="audioSourceId"
+            :label="t('settings.pages.modules.beat_sync.sections.audio_source.source.label')"
+            :description="t('settings.pages.modules.beat_sync.sections.audio_source.source.description')"
+            :placeholder="t('settings.pages.modules.beat_sync.sections.audio_source.source.placeholder')"
+            :options="audioSourceOptions"
+            :disabled="state?.isActive || isLoadingAudioSources || starting"
+          />
+
           <div max-w-full flex="~ row gap-4 wrap">
+            <Button
+              variant="secondary"
+              :disabled="isLoadingAudioSources"
+              @click="loadAudioSources"
+            >
+              {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.refresh') }}
+            </Button>
+
             <template v-if="state?.isActive">
-              <Button @click="toggleBeatSync(false)">
+              <Button @click="stopBeatSync">
                 {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.stop') }}
               </Button>
             </template>
 
             <template v-else>
-              <Button @click="toggleBeatSync(true)">
-                {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.start_screen_capture') }}
+              <Button
+                :disabled="!audioSourceId || isLoadingAudioSources || starting"
+                @click="startBeatSync"
+              >
+                {{ t('settings.pages.modules.beat_sync.sections.audio_source.actions.start') }}
               </Button>
             </template>
           </div>
         </div>
 
         <Alert
-          v-if="noAudioDetected"
-          tone="warning"
-          :title="t('settings.pages.modules.beat_sync.sections.audio_source.no_audio.title')"
+          v-if="audioSourceError"
+          tone="danger"
         >
-          {{ t('settings.pages.modules.beat_sync.sections.audio_source.no_audio.description') }}
+          <template #title>
+            {{ t('settings.pages.modules.beat_sync.sections.audio_source.errors.list_failed') }}
+          </template>
+          {{ audioSourceError }}
         </Alert>
 
-        <div flex="~ col gap-4">
-          <div flex="~ row" items-center justify-between>
-            <div>
-              <h2 class="text-lg text-neutral-500 md:text-2xl dark:text-neutral-500">
-                {{ t('settings.pages.modules.beat_sync.sections.parameters.title') }}
-              </h2>
-              <div text="neutral-400 dark:neutral-400">
-                <span>{{ t('settings.pages.modules.beat_sync.sections.parameters.description') }}</span>
-              </div>
-            </div>
-
-            <button
-              title="Reset settings"
-              flex items-center justify-center rounded-full p-2
-              transition="all duration-250 ease-in-out"
-              text="neutral-500 dark:neutral-400"
-              bg="transparent dark:transparent hover:neutral-200 dark:hover:neutral-800 active:neutral-300 dark:active:neutral-700"
-              @click="resetDefaultParameters"
-            >
-              <div i-solar:refresh-bold-duotone text-xl />
-            </button>
-          </div>
-
-          <div max-w-full flex="~ col gap-4">
-            <FieldRange
-              v-model="parameters.sensitivity"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.sensitivity.label')"
-              :min="0"
-              :max="1"
-              :step="0.01"
-              :format-value="value => value.toFixed(1)"
-            />
-
-            <FieldRange
-              v-model="parameters.minBeatInterval"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.min_beat_interval.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.min_beat_interval.description')"
-              :min="0.05"
-              :max="1"
-              :step="0.01"
-              :format-value="value => `${(60 / value).toFixed(1)} BPM / ${value.toFixed(2)} s`"
-            />
-
-            <div>
-              <h3 class="text text-neutral-500 md:text-xl dark:text-neutral-500">
-                {{ t('settings.pages.modules.beat_sync.sections.parameters.advanced_parameters') }}
-              </h3>
-            </div>
-
-            <FieldRange
-              v-model="parameters.lowpassFilterFrequency"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.lowpass_filter_frequency.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.lowpass_filter_frequency.description')"
-              :min="20"
-              :max="600"
-              :step="10"
-              :format-value="value => `${value.toFixed(0)} Hz`"
-            />
-
-            <FieldRange
-              v-model="parameters.highpassFilterFrequency"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.highpass_filter_frequency.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.highpass_filter_frequency.description')"
-              :min="150"
-              :max="2000"
-              :step="10"
-              :format-value="value => `${value.toFixed(0)} Hz`"
-            />
-
-            <FieldRange
-              v-model="parameters.envelopeFilterFrequency"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.envelope_filter_frequency.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.envelope_filter_frequency.description')"
-              :min="20"
-              :max="200"
-              :step="10"
-              :format-value="value => `${value.toFixed(0)} Hz`"
-            />
-
-            <FieldCheckbox
-              v-model="parameters.warmup"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.warmup.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.warmup.description')"
-            />
-
-            <FieldCheckbox
-              v-model="parameters.adaptiveThreshold"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.adaptive_threshold.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.adaptive_threshold.description')"
-            />
-
-            <FieldCheckbox
-              v-model="parameters.spectralFlux"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.spectral_flux.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.spectral_flux.description')"
-            />
-
-            <FieldRange
-              v-model="parameters.bufferDuration"
-              :label="t('settings.pages.modules.beat_sync.sections.parameters.parameters.buffer_duration.label')"
-              :description="t('settings.pages.modules.beat_sync.sections.parameters.parameters.buffer_duration.description')"
-              :min="2"
-              :max="10"
-              :step="0.5"
-              :format-value="value => `${value.toFixed(1)} s`"
-            />
-          </div>
-        </div>
+        <Alert
+          v-if="startError"
+          tone="danger"
+        >
+          <template #title>
+            {{ t('settings.pages.modules.beat_sync.sections.audio_source.errors.start_failed') }}
+          </template>
+          {{ startError }}
+        </Alert>
       </div>
     </SettingsCard>
 
     <div flex="~ col gap-6 items-center" class="w-full md:w-[40%]">
-      <h2 class="mb-4 text-lg text-neutral-500 md:text-2xl dark:text-neutral-400" w-full>
-        <div class="inline-flex items-center gap-4">
-          {{ t('settings.pages.modules.beat_sync.sections.beat_visualizer.title') }}
-        </div>
-      </h2>
-
       <div class="max-w-400px w-full flex flex-col gap-3">
-        <div bg="neutral/10" h-64px w-full overflow-hidden rounded-2xl>
-          <AudioSpectrumVisualizer
-            v-if="isUpdatingFrequencies"
-            :frequencies="frequencies"
-            :scale="spectrumScale"
-            h-full w-full gap-0
-            bars-class="bg-primary-400/50 dark:bg-primary-500/50 rounded-none"
+        <div class="w-full flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4 dark:bg-neutral-900">
+          <div>
+            <div class="text-sm font-medium">
+              {{ t('settings.pages.modules.beat_sync.sections.vibe.title') }}
+            </div>
+            <div class="text-xs text-neutral-500 dark:text-neutral-400">
+              {{ t('settings.pages.modules.beat_sync.sections.vibe.description') }}
+            </div>
+          </div>
+
+          <FieldRange
+            v-model="vibeEnergyGain"
+            :label="t('settings.pages.modules.beat_sync.sections.vibe.sensitivity.label')"
+            :description="t('settings.pages.modules.beat_sync.sections.vibe.sensitivity.description')"
+            :min="MIN_BEAT_SYNC_VIBE_ENERGY_GAIN"
+            :max="MAX_BEAT_SYNC_VIBE_ENERGY_GAIN"
+            :step="0.05"
+            :format-value="value => `${Math.round(value * 100)}%`"
           />
+
+          <FieldRange
+            v-model="dancePulseHits"
+            :label="t('settings.pages.modules.beat_sync.sections.vibe.hit_window.label')"
+            :description="t('settings.pages.modules.beat_sync.sections.vibe.hit_window.description')"
+            :min="MIN_BEAT_SYNC_HIT_WINDOW"
+            :max="MAX_BEAT_SYNC_HIT_WINDOW"
+            :step="1"
+            :format-value="value => `${value} hits`"
+          />
+
+          <div>
+            <div class="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
+              <span>{{ t('settings.pages.modules.beat_sync.sections.vibe.energy') }}</span>
+              <span>{{ energyPercent }}%</span>
+            </div>
+            <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+              <div
+                class="h-full rounded-full bg-primary-400"
+                :style="{ width: `${energyPercent}%` }"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div class="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
+              <span>{{ t('settings.pages.modules.beat_sync.sections.vibe.punch') }}</span>
+              <span>{{ punchPercent }}%</span>
+            </div>
+            <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+              <div
+                class="h-full rounded-full bg-amber-400"
+                :style="{ width: `${punchPercent}%` }"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div class="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
+              <span>{{ t('settings.pages.modules.beat_sync.sections.vibe.hit') }}</span>
+              <span>{{ hitPercent }}%</span>
+            </div>
+            <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+              <div
+                class="h-full rounded-full bg-emerald-400"
+                :style="{ width: `${hitPercent}%` }"
+              />
+            </div>
+          </div>
         </div>
-
-        <SelectTab
-          v-model="spectrumScale"
-          size="sm"
-          :options="spectrumScaleOptions"
-        />
       </div>
-
-      <TransitionGroup
-        tag="div"
-        bg="neutral/10"
-        relative box-border aspect-square h-full max-h-400px max-w-400px w-full rounded-2xl
-        flex="~ row gap-2 wrap items-center"
-        :css="false"
-        @enter="onRippleEnter"
-      >
-        <div
-          v-for="beat in beatsHistory"
-          :key="beat.id"
-          :data-beat-id="beat.id"
-          absolute h-full w-full
-          rounded-full bg="primary/50"
-        />
-      </TransitionGroup>
     </div>
   </div>
 </template>

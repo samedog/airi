@@ -7,7 +7,11 @@
 */
 
 import type { VRM } from '@pixiv/three-vrm'
+import type { VRMAnimation } from '@pixiv/three-vrm-animation'
+import type { VrmResolvedAttachment } from '@proj-airi/stage-shared/vrm-attachments'
 import type {
+  AnimationAction,
+  AnimationClip,
   Group,
   Material,
   Object3D,
@@ -36,6 +40,8 @@ import { until } from '@vueuse/core'
 import {
   AnimationMixer,
   Box3,
+  LoopOnce,
+  LoopRepeat,
   MathUtils,
   Mesh,
   MeshPhysicalMaterial,
@@ -59,6 +65,7 @@ import {
 
 } from 'vue'
 
+import { animations } from '../../assets/vrm/animations'
 import { useVRMEyeFocusFor } from '../../composables/eye-tracking'
 import {
   createIblProbeController,
@@ -74,11 +81,18 @@ import {
   useBlink,
   useIdleEyeSaccades,
 } from '../../composables/vrm/animation'
+import { createVrmAttachmentRuntime } from '../../composables/vrm/attachments'
 import { loadVrm } from '../../composables/vrm/core'
 import { useVRMEmote } from '../../composables/vrm/expression'
 import { createVrmInteractionColliders } from '../../composables/vrm/interaction'
 import { resolveInternalVrmHooks } from '../../composables/vrm/internal-hooks'
 import { useVRMLipSync } from '../../composables/vrm/lip-sync'
+import {
+  applyVrmMeshNodeVisibility,
+  getVrmMeshNodes,
+  resetVrmMeshNodeVisibility,
+  setVrmMeshNodeVisibility,
+} from '../../composables/vrm/mesh-visibility'
 import {
   createThreeRendererMemorySnapshot,
   createVrmSceneSummarySnapshot,
@@ -91,6 +105,7 @@ import {
   stageThreeTraceVrmLoadStartEvent,
   stageThreeTraceVrmUpdateFrameEvent,
 } from '../../trace'
+import { idleLoopListeners } from './vrm-idle-loop-registry'
 import {
   clearManagedVrmInstance,
   stashManagedVrmInstance,
@@ -116,6 +131,8 @@ const props = withDefaults(defineProps<{
   connectSpeech?: (node: AudioNode) => () => void
   /** Whether speech is currently audible. Required when `connectSpeech` is set. */
   speechActive?: boolean
+  /** Resolved attachment bindings for this model. */
+  attachments?: VrmResolvedAttachment[]
   cursorPosition?: { x: number, y: number }
   /** The stable identity of the last model that completed scene binding. */
   lastCommittedModelId?: string
@@ -123,6 +140,8 @@ const props = withDefaults(defineProps<{
   modelId: string
   modelSrc?: string
   idleAnimation: string
+  /** Playback rate of the looping idle clip. */
+  idleAnimationSpeed?: number
   // loadAnimations?: string[]
   paused?: boolean
 
@@ -139,6 +158,7 @@ const props = withDefaults(defineProps<{
 
   camera: PerspectiveCamera
 }>(), {
+  idleAnimationSpeed: 1,
   paused: false,
 })
 /*
@@ -155,6 +175,7 @@ const emit = defineEmits<{
 
   (e: 'error', value: unknown): void
   (e: 'loaded', value: string): void
+  (e: 'idleAnimationLooped', value: { duration: number }): void
 }>()
 
 const {
@@ -164,6 +185,7 @@ const {
   modelId,
   modelSrc,
   idleAnimation,
+  idleAnimationSpeed,
   // loadAnimations, // TBC
   paused,
 
@@ -189,14 +211,177 @@ const headPosition = new Vector3()
 const headUp = new Vector3()
 const modelLoaded = ref<boolean>(false)
 const interactionColliders = shallowRef<VrmInteractionColliderSet>()
+const attachmentRuntime = createVrmAttachmentRuntime()
+
+function syncAttachments() {
+  void attachmentRuntime.apply(vrm.value, props.attachments ?? [])
+}
+
+watch(() => props.attachments, syncAttachments, { deep: true })
 
 let loadSequence = 0
 // for eye tracking modes
 const raycaster = new Raycaster()
 
 // Animation related ref
-const vrmAnimationMixer = ref<AnimationMixer>()
+const vrmAnimationMixer = shallowRef<AnimationMixer>()
+const currentGestureAction = shallowRef<AnimationAction>()
+const currentGestureName = ref<string>()
+let gestureRequest = 0
+const vrmAnimationCache = new Map<string, VRMAnimation>()
+let gestureFallbackTimer: ReturnType<typeof setTimeout> | undefined
 const { onBeforeRender, stop, start } = useLoop()
+
+function clearGestureFallback() {
+  if (gestureFallbackTimer)
+    clearTimeout(gestureFallbackTimer)
+  gestureFallbackTimer = undefined
+}
+
+/**
+ * Reports completed idle cycles so the stage can rotate an idle pool.
+ *
+ * The mixer is shared by base animation and gestures, so the event is filtered
+ * against the current idle action. A replaced idle action keeps fading out but
+ * no longer matches, which prevents its remaining loops from advancing the pool.
+ */
+function watchIdleLoops(mixer: AnimationMixer) {
+  const previous = idleLoopListeners.get(mixer)
+  if (previous)
+    mixer.removeEventListener('loop', previous)
+
+  const listener = (event: { action: { getClip: () => { duration: number } } }) => {
+    // The idle action keeps looping at zero weight under a gesture. Rotating it
+    // then would crossfade from the gesture back to idle and cut the gesture off.
+    if (currentGestureAction.value?.isRunning())
+      return
+    if (event.action !== getIdleAction(mixer))
+      return
+    emit('idleAnimationLooped', { duration: event.action.getClip().duration })
+  }
+
+  mixer.addEventListener('loop', listener)
+  idleLoopListeners.set(mixer, listener)
+}
+
+function unwatchIdleLoops(mixer?: AnimationMixer) {
+  if (!mixer)
+    return
+  const listener = idleLoopListeners.get(mixer)
+  if (listener)
+    mixer.removeEventListener('loop', listener)
+  idleLoopListeners.delete(mixer)
+}
+
+// The cache can hand the same mixer to a remounted component, so keep the idle
+// action on the mixer itself instead of in component-scoped state.
+type MixerWithIdleAction = AnimationMixer & {
+  __airiIdleAction?: AnimationAction
+  __airiIdleUrl?: string
+}
+
+function getIdleAction(mixer?: AnimationMixer) {
+  return (mixer as MixerWithIdleAction | undefined)?.__airiIdleAction
+}
+
+function setIdleAction(mixer: AnimationMixer, action: AnimationAction) {
+  (mixer as MixerWithIdleAction).__airiIdleAction = action
+}
+
+function getIdleAnimationUrl(mixer?: AnimationMixer) {
+  return (mixer as MixerWithIdleAction | undefined)?.__airiIdleUrl
+}
+
+function setIdleAnimationUrl(mixer: AnimationMixer, url: string) {
+  (mixer as MixerWithIdleAction).__airiIdleUrl = url
+}
+
+/** Recover a cached/restored mixer whose idle action was stopped or faded out. */
+function ensureIdlePlaying(mixer?: AnimationMixer) {
+  const idle = getIdleAction(mixer)
+  if (!idle)
+    return
+  idle.setLoop(LoopRepeat, Infinity)
+  idle.clampWhenFinished = false
+  if (!idle.isRunning())
+    idle.reset().play()
+  idle.setEffectiveWeight(1)
+}
+
+let idleReplaceRequest = 0
+
+/**
+ * Replaces the looping idle action without reloading the model.
+ *
+ * The bundled idle stays loaded until the replacement clip is ready. A failed
+ * or stale load leaves the previous idle running.
+ */
+async function replaceIdleAnimation(url: string) {
+  const vrmAtStart = vrm.value
+  const mixer = vrmAnimationMixer.value
+  if (!vrmAtStart || !mixer || !url)
+    return false
+  if (getIdleAnimationUrl(mixer) === url)
+    return true
+
+  const request = ++idleReplaceRequest
+  let animation: VRMAnimation | undefined
+  try {
+    animation = await loadVRMAnimation(url)
+  }
+  catch {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+  if (!animation) {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+
+  let clip: AnimationClip | undefined
+  try {
+    clip = await clipFromVRMAnimation(vrmAtStart, animation)
+  }
+  catch {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+  if (!clip || !(clip.duration > 0) || !Number.isFinite(clip.duration)) {
+    console.warn('[VRM] animation for "idle" not found')
+    return false
+  }
+  if (vrm.value !== vrmAtStart || vrmAnimationMixer.value !== mixer || request !== idleReplaceRequest)
+    return false
+
+  reAnchorRootPositionTrack(clip, vrmAtStart)
+  const previous = getIdleAction(mixer)
+  const action = mixer.clipAction(clip)
+  // The same clip may have been used as a one-shot preview or gesture first.
+  // clipAction() returns that cached action, so reset its loop mode explicitly.
+  action.setLoop(LoopRepeat, Infinity)
+  action.clampWhenFinished = false
+  action.reset().setEffectiveTimeScale(idleAnimationSpeed.value).setEffectiveWeight(1).play()
+
+  const fadeSeconds = 0.35
+  const current = currentGestureAction.value?.isRunning() ? currentGestureAction.value : previous
+  if (current && current !== action)
+    action.crossFadeFrom(current, fadeSeconds, false)
+  else
+    action.fadeIn(fadeSeconds)
+
+  setIdleAction(mixer, action)
+  setIdleAnimationUrl(mixer, url)
+  return true
+}
+
+watch(idleAnimation, (url) => {
+  if (url)
+    void replaceIdleAnimation(url)
+}, { flush: 'post' })
+
+watch(idleAnimationSpeed, (speed) => {
+  getIdleAction(vrmAnimationMixer.value)?.setEffectiveTimeScale(speed)
+}, { flush: 'post' })
 
 const vrmHooks: readonly VrmHook[] = resolveInternalVrmHooks()
 type VrmFrameRuntimeHook = (vrm: VRM, delta: number) => void
@@ -320,11 +505,15 @@ function getActiveManagedVrmInstance() {
 }
 
 function clearActiveManagedVrmRefs() {
+  attachmentRuntime.dispose()
   vrmAnimationMixer.value = undefined
   vrmEmote.value = undefined
   vrm.value = undefined
   vrmGroup.value = undefined
   interactionColliders.value = undefined
+  currentGestureAction.value = undefined
+  currentGestureName.value = undefined
+  clearGestureFallback()
 }
 
 function applyModelTransform(group: Group) {
@@ -345,12 +534,17 @@ function applyManagedVrmInstance(instance: ManagedVrmInstance) {
   vrmAnimationMixer.value = instance.mixer
   vrmEmote.value = instance.emote
   interactionColliders.value = instance.interactionColliders
+  syncAttachments()
+  watchIdleLoops(instance.mixer)
+  ensureIdlePlaying(instance.mixer)
+  getIdleAction(instance.mixer)?.setEffectiveTimeScale(idleAnimationSpeed.value)
 }
 
 function destroyManagedVrmInstance(instance?: ManagedVrmInstance) {
   if (!instance)
     return
 
+  unwatchIdleLoops(instance.mixer)
   instance.emote.dispose()
   instance.mixer.stopAllAction()
   instance.interactionColliders.dispose()
@@ -593,14 +787,18 @@ function componentCleanUp(
   disposeBeforeRenderLoop?.()
   disposeBeforeRenderLoop = undefined
 
-  if (activeInstance)
+  if (activeInstance) {
     detachVrmGroup(activeInstance.group)
+    unwatchIdleLoops(activeInstance.mixer)
+  }
 
   if (shouldDestroyResources) {
     destroyManagedVrmInstanceWithHooks(activeInstance, reason)
     destroyManagedVrmInstanceWithHooks(clearedInstance, reason)
   }
   else if (shouldStashVrmResources(reason)) {
+    // Do not leave a gesture running inside a mixer that is stashed for reuse.
+    stopGesture(0)
     destroyManagedVrmInstanceWithHooks(activeInstance ? stashManagedVrmInstance(activeInstance) : undefined, reason)
   }
   else {
@@ -771,6 +969,8 @@ async function loadModel() {
         emit('sceneBootstrap', buildSceneBootstrap(reusableInstance.vrm, true))
         commitManagedVrmInstance(reusableInstance, currentLoadReason)
         didCommitLoad = true
+        if (idleAnimation.value && getIdleAnimationUrl(reusableInstance.mixer) !== idleAnimation.value)
+          void replaceIdleAnimation(idleAnimation.value)
 
         if (isStageThreeRuntimeTraceEnabled()) {
           stageThreeRuntimeTraceContext.emit(stageThreeTraceVrmLoadEndEvent, {
@@ -843,7 +1043,14 @@ async function loadModel() {
 
     // play animation
     nextVrmAnimationMixer = new AnimationMixer(_vrm.scene)
-    nextVrmAnimationMixer.clipAction(clip).play()
+    watchIdleLoops(nextVrmAnimationMixer)
+    const idleAction = nextVrmAnimationMixer.clipAction(clip)
+    idleAction.setLoop(LoopRepeat, Infinity)
+    idleAction.clampWhenFinished = false
+    idleAction.setEffectiveTimeScale(idleAnimationSpeed.value)
+    idleAction.play()
+    setIdleAction(nextVrmAnimationMixer, idleAction)
+    setIdleAnimationUrl(nextVrmAnimationMixer, idleAnimation.value)
 
     nextVrmEmote = useVRMEmote(_vrm)
 
@@ -921,6 +1128,8 @@ async function loadModel() {
       vrm: _vrm,
     }), currentLoadReason)
     didCommitLoad = true
+    if (idleAnimation.value && getIdleAnimationUrl(nextVrmAnimationMixer) !== idleAnimation.value)
+      void replaceIdleAnimation(idleAnimation.value)
 
     if (isStageThreeRuntimeTraceEnabled()) {
       stageThreeRuntimeTraceContext.emit(stageThreeTraceVrmLoadEndEvent, {
@@ -1105,11 +1314,193 @@ function headAnchor() {
   return { position: headPosition, radius }
 }
 
+interface PlayVRMGestureOptions {
+  /** Repeat until stopGesture() is called. One-shot clips return to idle by default. */
+  loop?: boolean
+  /** Number of loop repetitions when loop is true; omit for infinite. */
+  repetitions?: number
+  /** Crossfade length in milliseconds. */
+  fadeMs?: number
+  /** One-shot clips fade back to idle when they finish unless this is false. */
+  returnToIdle?: boolean
+}
+
+/**
+ * Loads a `.vrma` from the `animations` registry (or an absolute URL) and
+ * crossfades it over the current idle/gesture action. Returns false when the
+ * model is not ready or the name is not registered.
+ */
+async function playGesture(name: string, options: PlayVRMGestureOptions = {}) {
+  const vrmAtStart = vrm.value
+  const mixer = vrmAnimationMixer.value
+  if (!vrmAtStart || !mixer) {
+    console.warn(`[VRM] Cannot play gesture "${name}": model is not ready`)
+    return false
+  }
+
+  if (currentGestureName.value === name && currentGestureAction.value?.isRunning())
+    return true
+
+  const request = ++gestureRequest
+  const entry = Object.hasOwn(animations, name)
+    ? animations[name as keyof typeof animations]
+    : undefined
+  const url = entry?.toString()
+    ?? (/^(?:https?:|data:|blob:|airi-vrm-animation:|\/)/.test(name) ? name : undefined)
+  if (!url) {
+    console.warn(`[VRM] animation for "${name}" not found`)
+    return false
+  }
+
+  let vrmAnimation = vrmAnimationCache.get(url)
+  if (!vrmAnimation) {
+    try {
+      vrmAnimation = await loadVRMAnimation(url)
+    }
+    catch {
+      console.warn(`[VRM] animation for "${name}" not found`)
+      return false
+    }
+    if (!vrmAnimation) {
+      console.warn(`[VRM] animation for "${name}" not found`)
+      return false
+    }
+    vrmAnimationCache.set(url, vrmAnimation)
+  }
+
+  // A model switch or a newer gesture can finish while the .vrma is loading.
+  if (request !== gestureRequest || vrm.value !== vrmAtStart || vrmAnimationMixer.value !== mixer)
+    return false
+
+  let clip: AnimationClip | undefined
+  try {
+    clip = await clipFromVRMAnimation(vrmAtStart, vrmAnimation)
+  }
+  catch {
+    console.warn(`[VRM] animation for "${name}" not found`)
+    return false
+  }
+  if (request !== gestureRequest)
+    return false
+  if (!clip) {
+    console.warn(`[VRM] animation for "${name}" not found`)
+    return false
+  }
+  if (clip.tracks.length === 0 || !(clip.duration > 0) || !Number.isFinite(clip.duration)) {
+    console.warn(`[VRM] Ignoring gesture "${name}": clip has no usable animation tracks`)
+    return false
+  }
+
+  clearGestureFallback()
+  const fadeSeconds = Math.max(0, (options.fadeMs ?? 400) / 1000)
+  const loop = options.loop === true
+  const repetitions = loop
+    ? Math.max(1, Math.floor(options.repetitions ?? Infinity))
+    : 1
+  const finiteLoop = loop && Number.isFinite(repetitions)
+  const action = mixer.clipAction(clip)
+  const previous = currentGestureAction.value
+  const idle = getIdleAction(mixer)
+  // A cached mixer can arrive with its idle action stopped; restore it before
+  // crossfading so a gesture can never leave the character in a T-pose.
+  if (idle && !idle.isRunning())
+    idle.reset().play()
+
+  action.reset()
+  action.setEffectiveTimeScale(1)
+  action.setEffectiveWeight(1)
+  action.setLoop(loop ? LoopRepeat : LoopOnce, loop ? repetitions : 1)
+  // Hold the last pose while idle fades in, rather than letting the clip snap
+  // back before the crossfade starts.
+  action.clampWhenFinished = !loop || finiteLoop
+  action.play()
+
+  if (previous && previous !== action && previous.isRunning())
+    action.crossFadeFrom(previous, fadeSeconds, false)
+  else if (idle?.isRunning())
+    action.crossFadeFrom(idle, fadeSeconds, false)
+  else
+    action.fadeIn(fadeSeconds)
+
+  currentGestureAction.value = action
+  currentGestureName.value = name
+
+  if (!loop || finiteLoop) {
+    const finishGesture = () => {
+      clearGestureFallback()
+      if (currentGestureAction.value !== action)
+        return
+
+      currentGestureAction.value = undefined
+      currentGestureName.value = undefined
+      if (options.returnToIdle !== false && idle) {
+        idle.setLoop(LoopRepeat, Infinity)
+        idle.clampWhenFinished = false
+        idle.reset().fadeIn(fadeSeconds).play()
+        action.fadeOut(fadeSeconds)
+      }
+      else {
+        action.stop()
+      }
+    }
+    const onFinished = (event: { type: 'finished', action: AnimationAction, direction: number }) => {
+      if (event.action !== action)
+        return
+      mixer.removeEventListener('finished', onFinished)
+      finishGesture()
+    }
+    mixer.addEventListener('finished', onFinished)
+    // Some exported clips never emit `finished` (clamp/zero repetitions edge
+    // cases). Force the handoff so idle cannot stay faded out forever.
+    gestureFallbackTimer = setTimeout(
+      finishGesture,
+      Math.max(1000, clip.duration * repetitions * 1000 + fadeSeconds * 2000 + 750),
+    )
+  }
+
+  return true
+}
+
+function stopGesture(fadeMs = 250) {
+  gestureRequest++
+  const mixer = vrmAnimationMixer.value
+  const action = currentGestureAction.value
+  if (!mixer || !action)
+    return
+
+  clearGestureFallback()
+  const fadeSeconds = Math.max(0, fadeMs / 1000)
+  const idle = getIdleAction(mixer)
+  if (idle) {
+    idle.reset().fadeIn(fadeSeconds).play()
+    action.fadeOut(fadeSeconds)
+  }
+  else {
+    action.stop()
+  }
+
+  currentGestureAction.value = undefined
+  currentGestureName.value = undefined
+}
+
+function gestureNames() {
+  return Object.keys(animations).filter(name => name !== 'idleLoop')
+}
+
 defineExpose({
   headAnchor,
   getInteractionColliders: () => interactionColliders.value?.colliders ?? [],
-  setExpression(expression: string, intensity = 1) {
-    vrmEmote.value?.setEmotionWithResetAfter(expression, 3000, intensity)
+  playGesture,
+  stopGesture,
+  gestureNames,
+  setExpression(expression: string, intensity = 1, holdMs = 3000) {
+    if (holdMs > 0)
+      vrmEmote.value?.setEmotionWithResetAfter(expression, holdMs, intensity)
+    else
+      vrmEmote.value?.setEmotion(expression, intensity)
+  },
+  resetExpression() {
+    vrmEmote.value?.setEmotion('neutral')
   },
   // NOTICE: This runtime frame hook is intentionally separate from internal VRM model hooks.
   // External callers use it for live pose/tracking input; internal hooks remain reserved for
@@ -1118,6 +1509,10 @@ defineExpose({
     vrmFrameRuntimeHook.value = hook
   },
   scene: computed(() => vrm.value?.scene),
+  meshNodes: () => getVrmMeshNodes(vrm.value),
+  setMeshNodeVisible: (id: string, visible: boolean) => setVrmMeshNodeVisibility(vrm.value, id, visible),
+  applyMeshNodeVisibility: (visibility: Record<string, boolean>) => applyVrmMeshNodeVisibility(vrm.value, visibility),
+  resetMeshNodeVisibility: () => resetVrmMeshNodeVisibility(vrm.value),
   lookAtUpdate(target: Vec3) {
     idleEyeSaccades.instantUpdate(vrm.value, target)
   },

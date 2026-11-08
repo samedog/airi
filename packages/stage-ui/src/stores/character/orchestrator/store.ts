@@ -9,8 +9,11 @@ import { onScopeDispose, ref } from 'vue'
 import { useCharacterNotebookStore, useCharacterStore } from '../'
 import { useAiriRuntimePrompt } from '../../../composables/use-airi-runtime-prompt'
 import { useLLM } from '../../ai/chat-llm/llm'
+import { useMemoryStore } from '../../memory'
 import { useModsServerChannelStore } from '../../mods/api/channel-server'
+import { useAiriCardStore } from '../../modules/airi-card'
 import { useConsciousnessStore } from '../../modules/consciousness'
+import { createSparkMemoryPlugin } from './spark-memory'
 
 export { sparkNotifyCommandSchema } from '@proj-airi/core-agent/agents/spark-notify'
 
@@ -20,6 +23,8 @@ export const useCharacterOrchestratorStore = defineStore('character-orchestrator
   const { activeProvider, activeModel } = storeToRefs(consciousnessStore)
   const characterStore = useCharacterStore()
   const notebookStore = useCharacterNotebookStore()
+  const cardStore = useAiriCardStore()
+  const memory = useMemoryStore()
   const { systemPrompt } = storeToRefs(characterStore)
   const runtimePrompt = useAiriRuntimePrompt()
   const modsServerChannelStore = useModsServerChannelStore()
@@ -69,6 +74,10 @@ export const useCharacterOrchestratorStore = defineStore('character-orchestrator
       createSparkNotifyReactionPlugin({
         onDelta: (eventId, text) => characterStore.onSparkNotifyReactionStreamEvent(eventId, text),
         onEnd: (eventId, text) => characterStore.onSparkNotifyReactionStreamEnd(eventId, text),
+      }),
+      createSparkMemoryPlugin({
+        memory,
+        activeCardId: () => cardStore.activeCardId,
       }),
     ],
   })

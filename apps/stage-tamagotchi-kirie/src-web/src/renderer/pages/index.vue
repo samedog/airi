@@ -22,6 +22,7 @@ import { useVoiceListening } from '@proj-airi/stage-ui/composables/voice-input-m
 import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
 import { useSettings } from '@proj-airi/stage-ui/stores/settings'
 import { useVoiceStore } from '@proj-airi/stage-ui/stores/voice'
+import { useVrmAnimationsStore } from '@proj-airi/stage-ui/stores/vrm-animations'
 import { refDebounced } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onScopeDispose, ref, shallowRef, toRef, watch } from 'vue'
@@ -33,6 +34,7 @@ import ResourceStatusIsland from '../components/stage-islands/resource-status-is
 import WindowResizeBorder from '../components/window-resize-border.vue'
 
 import { electronOpenSettings } from '../../shared/eventa'
+import { getModelSettingsRuntimeContext, modelSettingsPreviewAnimationRequested, modelSettingsPreviewAnimationStopRequested } from '../../shared/model-settings-runtime'
 import { useModelSettingsRuntimeOwner } from '../composables/model-settings-runtime-owner'
 import { usePushToTalkShortcut } from '../composables/use-push-to-talk-shortcut'
 import { useControlsIslandStore } from '../stores/controls-island'
@@ -346,6 +348,43 @@ useModelSettingsRuntimeOwner({
   ownerInstanceId: modelSettingsRuntimeOwnerInstanceId,
   renderer: () => stageModelRenderer.value,
   runtimeSnapshot: modelSettingsRuntimeSnapshot,
+})
+
+const vrmAnimationsStore = useVrmAnimationsStore()
+const modelSettingsRuntimeContext = getModelSettingsRuntimeContext()
+let previewRequest = 0
+
+async function playPreviewAnimation(assetId: string) {
+  const request = ++previewRequest
+  const url = await vrmAnimationsStore.getAnimationUrl(assetId)
+  if (request !== previewRequest || !url)
+    return
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (request !== previewRequest)
+      return
+    const played = await widgetStageRef.value?.playGesture(url, { fadeMs: 200, returnToIdle: true })
+    if (request !== previewRequest)
+      return
+    if (played)
+      return
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+}
+
+const stopPreviewAnimationListener = modelSettingsRuntimeContext.on(modelSettingsPreviewAnimationRequested, (event) => {
+  const assetId = event.body?.assetId
+  if (assetId)
+    void playPreviewAnimation(assetId)
+})
+const stopPreviewAnimationStopListener = modelSettingsRuntimeContext.on(modelSettingsPreviewAnimationStopRequested, () => {
+  previewRequest++
+  widgetStageRef.value?.stopGesture()
+})
+onScopeDispose(() => {
+  previewRequest++
+  stopPreviewAnimationListener()
+  stopPreviewAnimationStopListener()
 })
 
 const voice = useVoiceStore()

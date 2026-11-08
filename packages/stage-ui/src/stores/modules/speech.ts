@@ -210,7 +210,7 @@ export const useSpeechStore = defineStore('speech', () => {
     if (activeSpeechProvider.value === 'alibaba-cloud-model-studio' && activeSpeechModel.value === 'cosyvoice-v2') {
       return true
     }
-    return ['elevenlabs', 'microsoft-speech', 'azure-speech'].includes(activeSpeechProvider.value)
+    return ['elevenlabs', 'microsoft-speech', 'azure-speech', 'aivis-speech'].includes(activeSpeechProvider.value)
   })
 
   // Only leader loads own these counters. Older responses for a provider cannot
@@ -641,7 +641,7 @@ export const useSpeechStore = defineStore('speech', () => {
     const voice = selectedVoice ? structuredClone(toRaw(selectedVoice)) : undefined
     const { model, voiceId, streaming, streamingModel } = resolveSpeechSelection(selection, config, () => providersStore.getDefaultModelForProvider(providerId))
     const useSSML = ssmlEnabled.value
-    const canUseSSML = ['elevenlabs', 'microsoft-speech', 'azure-speech'].includes(providerId) || (providerId === 'alibaba-cloud-model-studio' && model === 'cosyvoice-v2')
+    const canUseSSML = ['elevenlabs', 'microsoft-speech', 'azure-speech', 'aivis-speech'].includes(providerId) || (providerId === 'alibaba-cloud-model-studio' && model === 'cosyvoice-v2')
     const pitchValue = pitch.value
     const language = voice?.languages[0]?.code
     const voiceType = providerId === OFFICIAL_SPEECH_PROVIDER_ID || providerId === OFFICIAL_SPEECH_STREAMING_PROVIDER_ID

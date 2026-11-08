@@ -126,8 +126,8 @@ export default {
     ...(env.ERGOSPHERE_IT_VERSION ? { version: env.ERGOSPHERE_IT_VERSION } : {}),
     name: 'ai.moeru.airi',
     main: 'out/launcher/index.mjs',
-    homepage: 'https://airi.moeru.ai/docs/',
-    repository: 'https://github.com/moeru-ai/airi',
+    homepage: 'https://github.com/samedog/airi',
+    repository: 'https://github.com/samedog/airi',
     license: 'MIT',
   },
   win: {
@@ -138,7 +138,7 @@ export default {
     // This prevents cross-arch lookups such as arm64 clients reading x64 metadata.
     publish: {
       provider: 'github',
-      owner: 'moeru-ai',
+      owner: 'samedog',
       repo: 'airi',
       channel: 'latest-${arch}',
     },
@@ -160,7 +160,7 @@ export default {
     // to architecture-specific update feeds on macOS (for example: `latest-x64-mac.yml`, `latest-arm64-mac.yml`).
     publish: {
       provider: 'github',
-      owner: 'moeru-ai',
+      owner: 'samedog',
       repo: 'airi',
       // NOTICE: `channel: 'latest-${arch}'` matters because electron-builder expands
       // `${arch}` before it writes any publish metadata, and electron-updater later
@@ -258,7 +258,7 @@ export default {
     // NOTICE: Same channel rule as Windows/macOS. Keep `${arch}` to avoid x64/arm64 feed collisions on Linux.
     publish: {
       provider: 'github',
-      owner: 'moeru-ai',
+      owner: 'samedog',
       repo: 'airi',
       channel: 'latest-${arch}',
     },

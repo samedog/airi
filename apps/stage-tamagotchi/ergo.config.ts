@@ -14,8 +14,10 @@ const version = env.ERGOSPHERE_IT_VERSION
 export default defineConfig({
   // The app can switch to another channel at run time, see `src/main/services/electron/auto-updater.ts`.
   channel: env.AIRI_UPDATE_CHANNEL || channelOfVersion(version),
-  // Steam updates the Steam build. Flatpak and Nix are known only at runtime, see src/launcher/index.ts.
-  disabled: env.VITE_DISTRIBUTION === 'steam',
+  // This fork does not publish a signed ergosphere release feed. Leave the launcher
+  // updater off so a custom build cannot replace itself with an upstream AIRI build.
+  // Enable this only after hosting a fork-owned feed and replacing the public key.
+  disabled: true,
   // A test build can point at another feed and key, for example a local S3.
   feedUrl: env.AIRI_UPDATE_FEED_URL || 'https://release-updates.airi.build',
   // 3: requires an installer with Electron 43.8.4 to fix CVE-2026-111497. Bundle updates cannot replace Electron.

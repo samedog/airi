@@ -15,9 +15,16 @@ import { isSafeSpotlightAccelerator } from '../../shared/spotlight-shortcut'
 /** Stable binding ID. A changed accelerator keeps this ID, so the main process replaces the earlier binding. */
 export const PUSH_TO_TALK_SHORTCUT_ID = 'voice-push-to-talk'
 
-/** Returns the default hold shortcut. Ctrl+Shift+Space has no default system meaning on macOS, Windows, or common Linux desktops. */
+/** Storage key for the accelerator that the user selected. */
+const PUSH_TO_TALK_ACCELERATOR_STORAGE_KEY = 'settings/hearing/push-to-talk-shortcut'
+/** Marks the one-time move from the old Ctrl+Shift+Space default. */
+const PUSH_TO_TALK_DEFAULT_MIGRATION_KEY = 'settings/hearing/push-to-talk-shortcut-default-v2'
+/** The default before Ctrl+Alt+Shift+Space. */
+const legacyDefaultPushToTalkAccelerator: ShortcutAccelerator = { modifiers: ['ctrl', 'shift'], key: 'Space' }
+
+/** Returns the default hold shortcut. Ctrl+Alt+Shift+Space avoids common OS and editor shortcuts. */
 export function defaultPushToTalkAccelerator(): ShortcutAccelerator {
-  return { modifiers: ['ctrl', 'shift'], key: 'Space' }
+  return { modifiers: ['ctrl', 'alt', 'shift'], key: 'Space' }
 }
 
 /**
@@ -37,8 +44,22 @@ export function isHoldableAccelerator(accelerator: ShortcutAccelerator) {
  * `registrationError` is the latest result of the stage window. An empty string means that the shortcut is registered or not needed.
  */
 export function usePushToTalkShortcutSettings() {
+  const accelerator = useLocalStorage<ShortcutAccelerator>(PUSH_TO_TALK_ACCELERATOR_STORAGE_KEY, defaultPushToTalkAccelerator())
+  const defaultMigrated = useLocalStorage<boolean>(PUSH_TO_TALK_DEFAULT_MIGRATION_KEY, false)
+
+  // Existing installations stored the old default. Move only that exact value once,
+  // so a later deliberate choice of Ctrl+Shift+Space stays untouched.
+  if (!defaultMigrated.value) {
+    if (accelerator.value.key === legacyDefaultPushToTalkAccelerator.key
+      && accelerator.value.modifiers.length === legacyDefaultPushToTalkAccelerator.modifiers.length
+      && legacyDefaultPushToTalkAccelerator.modifiers.every(modifier => accelerator.value.modifiers.includes(modifier))) {
+      accelerator.value = defaultPushToTalkAccelerator()
+    }
+    defaultMigrated.value = true
+  }
+
   return {
-    accelerator: useLocalStorage<ShortcutAccelerator>('settings/hearing/push-to-talk-shortcut', defaultPushToTalkAccelerator()),
+    accelerator,
     registrationError: useLocalStorage<ShortcutFailureReason | ''>('settings/hearing/push-to-talk-shortcut-error', ''),
   }
 }

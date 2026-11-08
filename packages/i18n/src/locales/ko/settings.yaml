@@ -652,43 +652,6 @@ pages:
             stop: 중지
           description: 비트를 감지할 오디오 소스를 선택합니다.
           title: 오디오 소스
-        beat_visualizer:
-          title: 비트 비쥬얼라이져
-        parameters:
-          advanced_parameters: 고급 매개변수
-          description: 비트 감지 매개변수를 조정합니다.
-          title: 매개변수
-          parameters:
-            adaptive_threshold:
-              description: >-
-                시간 경과에 따른 신호 분산을 기반으로 적응 임계값을 적용할지 여부를 구성합니다.
-              label: 적응 임계값
-            buffer_duration:
-              description: 내부 분석 버퍼의 지속 시간을 구성합니다.
-              label: 버퍼 지속 시간
-            envelope_filter_frequency:
-              description: >-
-                부드러운 에너지 변화에 적용되는 엔벨로프 필터의 주파수를 구성합니다.
-              label: 엔벨로프 필터 주파수
-            highpass_filter_frequency:
-              description: >-
-                서브베이스 노이즈와 같은 저주파를 줄이기 위해 적용되는 고주파 필터의 주파수를 구성합니다.
-              label: 고주파 필터 주파수
-            lowpass_filter_frequency:
-              description: >-
-                보컬과 같은 고주파를 줄이기 위해 적용된 저주파 필터의 주파수를 구성합니다.
-              label: 저주파 필터 주파수
-            min_beat_interval:
-              description: 최대 BPM 또는 감지된 비트 사이의 최소 간격을 구성합니다.
-              label: 최대 BPM / 최소 박자 간격
-            sensitivity:
-              label: 민감도
-            spectral_flux:
-              description: 스펙트럼 플럭스 기반 발병 감지를 활성화할지 여부를 구성합니다.
-              label: 스펙트럼 플럭스
-            warmup:
-              description: 더 나은 정확성을 위해 비트를 감지하기 전에 워밍업할지 여부를 구성합니다.
-              label: 워밍업
     artistry:
       title: 이미지 생성
       description: 이미지 생성, 장면 배경 및 그림 그리기입니다.

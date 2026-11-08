@@ -102,6 +102,11 @@ export function createVrmInteractionColliders(vrm: VRM): VrmInteractionColliderS
   }
 }
 
+/** Whether an object name belongs to an invisible interaction raycaster collider. */
+export function isVrmInteractionColliderName(name: string): boolean {
+  return name.startsWith(COLLIDER_NAME_PREFIX)
+}
+
 /**
  * Normalizes a collider object name into an interaction target.
  *
@@ -112,7 +117,7 @@ export function createVrmInteractionColliders(vrm: VRM): VrmInteractionColliderS
  * - "leftUpperArm"
  */
 export function getVrmInteractionTargetFromObjectName(name: string): VrmInteractionTarget | null {
-  if (!name.startsWith(COLLIDER_NAME_PREFIX))
+  if (!isVrmInteractionColliderName(name))
     return null
   const target = name.slice(COLLIDER_NAME_PREFIX.length)
   return (VRM_INTERACTION_TARGETS as readonly string[]).includes(target)

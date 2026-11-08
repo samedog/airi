@@ -1,4 +1,5 @@
 import type { Card, ccv3 } from '@proj-airi/ccc'
+import type { VrmAnimationBindings } from '@proj-airi/stage-shared/vrm-animations'
 import type {
   Live2DExpressionControl,
   Live2DModelControls,
@@ -15,6 +16,7 @@ import localeMessages from '@proj-airi/i18n/locales'
 
 import { errorMessageFrom } from '@moeru/std'
 import { useLocalStorageManualReset } from '@proj-airi/stage-shared/composables'
+import { normalizeVrmAnimationBindings, removeVrmAnimationAssetFromBindings } from '@proj-airi/stage-shared/vrm-animations'
 import { inspectLive2DModelControls } from '@proj-airi/stage-ui-live2d/controls/manifest'
 import { isLive2DControlEnabled } from '@proj-airi/stage-ui-live2d/controls/policy'
 import { StorageSerializers } from '@vueuse/core'
@@ -28,6 +30,7 @@ import { toast } from 'vue-sonner'
 
 import { DEFAULT_ARTISTRY_WIDGET_SPAWNING_PROMPT } from '../../constants/prompts/character-defaults'
 import { formatLive2DActPrompt } from '../../constants/prompts/live2d-act'
+import { formatVrmActPrompt } from '../../constants/prompts/vrm-act'
 import { documentSyncRepo } from '../../database/repos/document-sync.repo'
 import { authedFetch } from '../../libs/auth-fetch'
 import { joinCard, splitCard } from '../../libs/character-card-sync'
@@ -45,6 +48,7 @@ import { useProviderConfigStore } from '../providers/config'
 import { useProviderStore } from '../providers/provider'
 import { useSettingsStageModel } from '../settings/stage-model'
 import { useSyncPreferencesStore } from '../sync-preferences'
+import { useVrmAnimationCatalogStore } from '../vrm-animation-catalog'
 import { useArtistryStore } from './artistry'
 import { useConsciousnessStore } from './consciousness'
 import { configureAsDefaultsIfEmpty, unconfigureAuthenticationProviders } from './default'
@@ -134,6 +138,7 @@ function resolveSystemPrompt(
   card: AiriCard | undefined,
   expressions: readonly Live2DExpressionControl[],
   motions: readonly Live2DMotionControl[],
+  vrmMotions: readonly { name: string }[] = [],
 ): string {
   if (!card)
     return ''
@@ -147,6 +152,7 @@ function resolveSystemPrompt(
     card.scenario,
     card.extensions.airi.modules.artistry?.widgetInstruction,
     formatLive2DActPrompt(expressions, motions),
+    formatVrmActPrompt(vrmMotions),
   ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
 
   return systemPromptParts.join('\n\n')
@@ -192,6 +198,7 @@ export const useAiriCardStore = defineStore('airi-card', () => {
   /** Cloud sync is a device choice, on by default. The sync section of the account settings owns it. */
   const cloudSyncEnabled = computed(() => syncPreferences.isEnabled('character-cards'))
   const displayModels = useDisplayModelsStore()
+  const vrmAnimationCatalog = useVrmAnimationCatalogStore(pinia)
 
   const cards = useLocalStorageManualReset<Map<string, AiriCard>>('airi-cards', new Map(), { listenToStorageChanges: false })
   const activeCardId = shallowRef(readPersistedActiveCardId())
@@ -515,6 +522,81 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     })
 
     return true
+  }
+
+  async function updateVrmAnimationBindings(characterId: string, avatarModelId: string, animations: VrmAnimationBindings) {
+    const card = toRaw(cards.value.get(characterId))
+    if (!card)
+      return false
+
+    const avatarModelIndex = card.extensions.airi.avatarModels.findIndex(model => model.id === avatarModelId)
+    const avatarModel = card.extensions.airi.avatarModels[avatarModelIndex]
+    if (!avatarModel || avatarModel.type !== 'vrm')
+      return false
+
+    const avatarModels = [...card.extensions.airi.avatarModels]
+    avatarModels[avatarModelIndex] = {
+      ...avatarModel,
+      config: {
+        ...avatarModel.config,
+        animations: normalizeVrmAnimationBindings(animations),
+      },
+    }
+    cards.value.set(characterId, {
+      ...card,
+      extensions: {
+        ...card.extensions,
+        airi: {
+          ...card.extensions.airi,
+          avatarModels,
+        },
+      },
+    })
+
+    return true
+  }
+
+  /** Removes a deleted library asset from every VRM avatar model on every card. */
+  function removeVrmAnimationAsset(assetId: string) {
+    let changed = false
+
+    for (const [characterId, card] of [...cards.value]) {
+      let cardChanged = false
+      const avatarModels = card.extensions.airi.avatarModels.map((model) => {
+        if (model.type !== 'vrm')
+          return model
+
+        const result = removeVrmAnimationAssetFromBindings(model.config.animations, assetId)
+        if (!result.changed)
+          return model
+
+        cardChanged = true
+        return {
+          ...model,
+          config: {
+            ...model.config,
+            animations: result.bindings,
+          },
+        }
+      })
+
+      if (!cardChanged)
+        continue
+
+      changed = true
+      cards.value.set(characterId, {
+        ...card,
+        extensions: {
+          ...card.extensions,
+          airi: {
+            ...card.extensions.airi,
+            avatarModels,
+          },
+        },
+      })
+    }
+
+    return changed
   }
 
   async function setCharacterDefaultAvatarModelFromDisplayModel(characterId: string, displayModelId: string) {
@@ -1461,8 +1543,14 @@ export const useAiriCardStore = defineStore('airi-card', () => {
   function getSystemPrompt(characterId: string) {
     // Live2D controls are inspected only for the active Avatar Model. Another
     // Character gets its prompt without ACT controls until it becomes active.
-    if (characterId === activeCardId.value)
-      return resolveSystemPrompt(cards.value.get(characterId), enabledLive2DExpressions.value, enabledLive2DMotions.value)
+    if (characterId === activeCardId.value) {
+      return resolveSystemPrompt(
+        cards.value.get(characterId),
+        enabledLive2DExpressions.value,
+        enabledLive2DMotions.value,
+        selectedAvatarModel.value?.type === 'vrm' ? vrmAnimationCatalog.assets : [],
+      )
+    }
 
     return resolveSystemPrompt(cards.value.get(characterId), emptyLive2DExpressions, emptyLive2DMotions)
   }
@@ -1557,6 +1645,8 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     resetState,
     selectAvatarModel,
     updateLive2DControlPolicy,
+    updateVrmAnimationBindings,
+    removeVrmAnimationAsset,
     initialize,
     activateCard,
     configureForAuthentication,
@@ -1591,6 +1681,7 @@ export const useAiriCardStore = defineStore('airi-card', () => {
       activeCard.value,
       enabledLive2DExpressions.value,
       enabledLive2DMotions.value,
+      selectedAvatarModel.value?.type === 'vrm' ? vrmAnimationCatalog.assets : [],
     )),
   }
 }, {
