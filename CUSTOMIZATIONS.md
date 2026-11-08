@@ -276,18 +276,16 @@ Reason: the old shortcuts collide with KDE's Deselect and common editor bindings
 
 ## Updating to a new upstream release
 
-1. Fetch the upstream main branch:
-   ```bash
-   git fetch upstream main
-   ```
-2. Switch to `main` and merge the upstream branch:
-   ```bash
-   git switch main
-   git merge upstream/main
-   ```
-3. Resolve conflicts by preserving the intent described above. Prefer upstream implementations when
-   they supersede a custom change.
-4. Install and validate:
+The patch is the source of truth. Do not merge `upstream/main` into local `main` as the sync
+mechanism.
+
+1. Verify the patch matches local `main` byte-for-byte before syncing.
+2. Fetch `upstream/main`.
+3. Create a fresh sync branch at `upstream/main`.
+4. Apply the customization patch with `git apply --3way`.
+5. Resolve conflicts by preserving the intent described above. Check whether a custom fix was
+   already merged upstream before keeping a duplicate copy.
+6. Install and validate:
    ```bash
    pnpm install
    pnpm typecheck
@@ -296,8 +294,9 @@ Reason: the old shortcuts collide with KDE's Deselect and common editor bindings
    pnpm --filter @proj-airi/stage-ui-three exec vitest run src/composables/vrm/animation.test.ts
    pnpm --filter @proj-airi/stage-tamagotchi build:unpack
    ```
-5. Package and test the desktop app before pushing `main`.
-6. Regenerate the portable patch from the new upstream branch.
+7. Build and live-test the AppImage, open a PR, merge with a merge commit, and fast-forward local
+   `main`.
+8. Regenerate the portable patch from the new upstream base and update `patches/README.md`.
 
 ## Guardrails
 

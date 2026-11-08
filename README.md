@@ -16,9 +16,10 @@
 
 > [!NOTE]
 > This is **samedog's AIRI fork**, a Linux/Wayland-focused build of Project AIRI.
-> It carries a focused custom patch set on the fork's `main` branch, based on upstream `v0.13.1`
-> commit `335f6cac7`, with a deliberate local sync against upstream `main` at `7ab1ecae4`
-> (2026-11-01). Upstream is not merged into `main` until the sync branch is reviewed and accepted.
+> It carries a focused custom patch set on the fork's `main` branch, based on upstream `main`
+> at `a0d1b2ce0` (2026-11-08). Upstream sync is patch-first: the customization patch is applied
+> to a fresh upstream base and reviewed before it reaches `main`. See
+> [CUSTOMIZATIONS.md](./CUSTOMIZATIONS.md) for the change list and sync process.
 >
 > The Linux-only feature is Beat Sync system audio capture through `parec` and PipeWire/PulseAudio.
 > It records a selected monitor source instead of using screen-capture loopback.
