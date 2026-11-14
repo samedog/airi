@@ -423,6 +423,9 @@ function onStageContextMenu(event: MouseEvent) {
   if (stageModelRenderer.value !== 'vrm')
     return
   event.preventDefault()
+  // The stage owns this right-click. Stop the event so the desktop shell does
+  // not also open the app menu from the same canvas event.
+  event.stopPropagation()
   openVrmMeshMenu(event)
 }
 

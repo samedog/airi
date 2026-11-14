@@ -178,6 +178,7 @@ and dance intensity can select among them.
 
 - Added per-model mesh visibility for loaded VRM models:
   - right-click the stage or use the eye button to open the radial menu;
+  - the stage stops the `contextmenu` event, so the desktop app menu does not open from the same right-click;
   - Body, Outfit, Accessories, Extras, and Attachments categories;
   - each category shows the number of available items and opens a second ring;
   - interaction raycaster colliders and spring-bone colliders are excluded;
