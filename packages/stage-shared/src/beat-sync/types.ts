@@ -9,10 +9,18 @@ export type BeatSyncBeat = Record<string, never>
 export interface BeatSyncVibe {
   /** Smoothed 0..1 loudness. */
   energy: number
-  /** Decaying 0..1 transient accent. */
-  punch: number
   /** Positive spectral flux, 0..1. A drum hit or strong musical change. */
   hit: number
+  /** Median accepted-HIT interval converted to BPM; 0 until two HITs exist. */
+  bpm: number
+  /** 0..1 regularity of the HIT intervals. Low means the tempo is unstable. */
+  bpmConfidence: number
+  /** Milliseconds between the two most recent accepted HITs; 0 until two exist. */
+  lastHitDeltaMs: number
+  /** Accepted HITs currently retained by the tempo estimator. */
+  hitCount: number
+  /** Time span covered by the retained HITs, in milliseconds. */
+  tempoBufferMs: number
 }
 
 export interface BeatSyncDetectorEventMap {

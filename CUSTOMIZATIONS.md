@@ -84,19 +84,31 @@ actually removes the other platform builds.
   monitor or input; it deliberately does not fall back to microphone or all-system capture.
 - Added `audio-capture.ts`, `audio-sources.ts`, and `linux-audio.ts` under
   `packages/stage-shared/src/beat-sync/`.
-- Replaced the Tempora BPM detector with the local HIT/Vibe tracker:
-  - `BeatSyncVibe` exposes smoothed `energy`, decaying `punch`, and transient `hit`.
-  - `BEAT_SYNC_HIT_THRESHOLD` and `BEAT_SYNC_HIT_COOLDOWN_MS` are shared constants.
+- Replaced the Tempora BPM detector with a local onset/tempo analyser:
+  - `BeatSyncVibe` exposes smoothed `energy` and transient `hit`.
+  - Energy uses a rolling 30-second per-song p10/p90 loudness range, refreshed every 0.5s.
+    The fixed `-40..-5 dBFS` range remains the cold-start and low-dynamic-range fallback;
+    levels below `-55 dBFS` are treated as silence.
+  - `BeatSyncTempoEstimator` autocorrelates a 6-second onset history, scores a log-normal prior
+    around 120 BPM, and ignores HIT timestamps when estimating BPM.
+  - Tempo octave correction doubles sub-90 readings and halves above-200 readings, leaving the
+    common 90–200 dance range untouched.
+  - It also exposes `bpm`, `bpmConfidence`, the last HIT delta, the HIT debug count, and the onset
+    buffer span.
+  - `BEAT_SYNC_HIT_THRESHOLD` and `BEAT_SYNC_HIT_COOLDOWN_MS` remain shared constants for the
+    Live2D beat marker and debug HIT readout.
   - The detector emits Vibe frames at roughly 30 Hz and synthetic beat ticks for Live2D.
   - The old Tempora dependency, worklet analyser, spectrum polling API, and Beat Sync spectrum
     visualizer were removed.
-- Added HIT-driven VRM dance behavior:
-  - The last 4–32 HITs are kept in a rolling window, default 12.
-  - Dance speed follows HIT density, then applies the 0.75 VRM speed trim with a 0.5x floor.
+- Beat Sync VRM dance speed is driven by detected BPM, not HIT density:
+  - `speed = clamp(bpm / 120, 0.5, 2)`.
+  - The old HIT-rate window, HIT timeout speed falloff, and 0.75 VRM trim were removed.
   - Dance clips can be tagged Calm (0.2), Medium (0.5), or Intense (0.78). Vibe energy selects the
     clip tier and the matching face expression, while ACT and speech expressions override it.
-  - No HIT for 1.5s damps the pulse; no Vibe for 2s resets energy and expression.
-- Added the Beat Sync settings UI with persisted audio source, Vibe sensitivity, and HIT window.
+  - No Vibe for 2s resets energy and expression.
+- Added the Beat Sync settings UI with persisted audio source and Vibe sensitivity.
+- Added a live tempo readout to the Beat Sync settings page: BPM, confidence, last HIT interval,
+  dance speed, HIT count, and onset window.
 - Removed `@nekopaw/tempora` from package manifests, the workspace catalog, and the lockfile. The
   Beat Sync path no longer depends on Tempora or an AudioWorklet analyser.
 - Added a recoverable hidden Beat Sync window manager:

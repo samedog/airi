@@ -18,11 +18,11 @@ import {
   createContext,
 } from './eventa'
 import { createLinuxSystemAudioNode } from './linux-audio'
-import { BEAT_SYNC_HIT_COOLDOWN_MS, BEAT_SYNC_HIT_THRESHOLD } from './settings'
-import { BeatSyncVibeTracker } from './vibe'
+import { BEAT_SYNC_ANALYSIS_INTERVAL_MS, BEAT_SYNC_HIT_COOLDOWN_MS, BEAT_SYNC_HIT_THRESHOLD } from './settings'
+import { BeatSyncTempoEstimator, BeatSyncVibeTracker } from './vibe'
 
 const vibeAnalyserFFTSize = 2048
-const vibeIntervalMs = 33
+const vibeIntervalMs = BEAT_SYNC_ANALYSIS_INTERVAL_MS
 const invokeTimeoutMs = 2000
 // Linux capture waits up to five seconds for the first `parec` chunk. Keep the
 // toggle round trip longer than that so a silent source is not reported as a
@@ -81,6 +81,7 @@ export function createBeatSyncDetector(options: CreateBeatSyncDetectorOptions): 
   let vibeInterval: ReturnType<typeof setInterval> | undefined
   let startGeneration = 0
   const vibeTracker = new BeatSyncVibeTracker()
+  const tempoEstimator = new BeatSyncTempoEstimator()
 
   const listeners: { [K in keyof BeatSyncDetectorEventMap]: Array<(...args: any) => void> } = {
     stateChange: [],
@@ -108,6 +109,7 @@ export function createBeatSyncDetector(options: CreateBeatSyncDetectorOptions): 
   const disposeResources = () => {
     stopVibeLoop()
     vibeTracker.reset()
+    tempoEstimator.reset()
     stopSource?.()
     stopSource = undefined
 
@@ -138,12 +140,16 @@ export function createBeatSyncDetector(options: CreateBeatSyncDetectorOptions): 
         vibeAnalyserNode.getByteTimeDomainData(vibeTimeDomainBuffer)
         vibeAnalyserNode.getByteFrequencyData(vibeFrequencyBuffer)
         const now = performance.now()
-        const vibe = vibeTracker.update(vibeTimeDomainBuffer, vibeFrequencyBuffer, now)
-        emit('vibe', vibe)
-        if (vibe.hit >= BEAT_SYNC_HIT_THRESHOLD && now - lastBeatAt >= BEAT_SYNC_HIT_COOLDOWN_MS) {
+        const vibe = vibeTracker.update(vibeTimeDomainBuffer, vibeFrequencyBuffer)
+        const isHit = vibe.hit >= BEAT_SYNC_HIT_THRESHOLD
+          && now - lastBeatAt >= BEAT_SYNC_HIT_COOLDOWN_MS
+        if (isHit) {
           lastBeatAt = now
-          emit('beat', {} satisfies BeatSyncBeat)
+          tempoEstimator.noteHit(now)
         }
+        emit('vibe', { ...vibe, ...tempoEstimator.update(vibe.hit) })
+        if (isHit)
+          emit('beat', {} satisfies BeatSyncBeat)
       }
       catch (error) {
         console.warn('[beat-sync] Vibe analysis failed', error)
@@ -223,6 +229,7 @@ export function createBeatSyncDetector(options: CreateBeatSyncDetectorOptions): 
       stopSource = nextSource.stop
 
       vibeTracker.reset()
+      tempoEstimator.reset()
       startVibeLoop()
       state.isActive = true
       emit('stateChange', state)
