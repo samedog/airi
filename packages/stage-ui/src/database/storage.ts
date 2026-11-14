@@ -28,6 +28,8 @@ storage.mount('memory', indexedDbDriver({ dbName: 'airi-memory', storeName: 'ent
 storage.mount('recipes', indexedDbDriver({ dbName: 'airi-recipes', storeName: 'recipes' }))
 /** The sticker library. Entries and images have their own key prefixes. */
 storage.mount('stickers', indexedDbDriver({ dbName: 'airi-sticker-library', storeName: 'records' }))
+/** VRM attachment files, keyed by asset ID. */
+storage.mount('vrm-attachments', indexedDbDriver({ dbName: 'airi-vrm-attachments', storeName: 'assets' }))
 
 /**
  * Reads the raw value of each key that starts with `prefix`.

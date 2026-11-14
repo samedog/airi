@@ -16,16 +16,20 @@ import messages from '@proj-airi/i18n/locales'
 
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { Format, LogLevel, setGlobalFormat, setGlobalHookPostLog, setGlobalLogLevel, useLogg } from '@guiiai/logg'
+import { defineInvokeHandler } from '@moeru/eventa'
 import { createContext } from '@moeru/eventa/adapters/electron/main'
 import { hasSelectedScreenCaptureSource, initScreenCaptureForMain } from '@proj-airi/electron-screen-capture/main'
 import { ExtensionHost } from '@proj-airi/plugin-sdk/plugin-host'
+import { isEnvTruthy } from '@proj-airi/stage-shared'
 import { app, ipcMain, protocol, session } from 'electron'
 import { createLoggLogger, injeca } from 'injeca'
 import { isLinux } from 'std-env'
 
 import devIcon from '../../resources/icon-dev.png?asset'
 
+import { electronErrorReportingSet } from '../shared/eventa'
 import { openDebugger, setupDebugger } from './app/debugger'
+import { ErrorReporting } from './app/error-reporting'
 import { nullFileLoggerHandle, setupFileLogger } from './app/file-logger'
 import { resolveIsWayland } from './app/ozone'
 import { installSingleInstanceGuard } from './app/single-instance'
@@ -100,6 +104,13 @@ const appUserDataPath = env.APP_USER_DATA_PATH?.trim()
 if (appUserDataPath) {
   app.setPath('userData', appUserDataPath)
 }
+
+// The config and the error reports start after the user data path is final, because both store files under it.
+// The SDK must start before the app is ready, so that it can start the Electron crash reporter.
+const globalAppConfig = createGlobalAppConfig()
+const errorReporting = new ErrorReporting(globalAppConfig)
+if (isEnvTruthy(import.meta.env.VITE_ENABLE_ANALYTICS))
+  errorReporting.start()
 
 // Thanks to [@blurymind](https://github.com/blurymind),
 //
@@ -254,6 +265,7 @@ app.whenReady().then(async () => {
 
   setupSherpawModelAssetsProtocol(getRendererRoot)
   setupSherpawModelAssets(createContext(ipcMain).context)
+  defineInvokeHandler(createContext(ipcMain).context, electronErrorReportingSet, enabled => errorReporting.setEnabled(Boolean(enabled)))
   setupVrmAnimations(createContext(ipcMain).context)
   setupPermissionHandlers(session.defaultSession, hasSelectedScreenCaptureSource)
 
@@ -270,7 +282,7 @@ app.whenReady().then(async () => {
   injeca.setLogger(createLoggLogger(useLogg('injeca').useGlobalConfig()))
   injeca.getContainer().logging = true
 
-  const appConfig = injeca.provide('configs:app', () => createGlobalAppConfig())
+  const appConfig = injeca.provide('configs:app', () => globalAppConfig)
   const artistryConfig = injeca.provide('configs:artistry', () => createArtistryConfig())
   const ioTraceRecordingConfig = injeca.provide('configs:io-trace-recording', () => createIOTraceRecordingConfig())
   const ioTraceHubConfig = injeca.provide('configs:io-trace-hub', () => createIOTraceHubConfig())
@@ -404,7 +416,7 @@ app.whenReady().then(async () => {
   const devtoolsMarkdownStressWindow = injeca.provide('windows:devtools:markdown-stress', () => setupDevtoolsWindow())
 
   const onboardingWindowManager = injeca.provide('windows:onboarding', {
-    dependsOn: { serverChannel, i18n },
+    dependsOn: { serverChannel, i18n, globalShortcut },
     build: ({ dependsOn }) => setupOnboardingWindowManager(dependsOn),
   })
 

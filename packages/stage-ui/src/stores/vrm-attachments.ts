@@ -6,23 +6,21 @@ import type {
   VrmResolvedAttachment,
 } from '@proj-airi/stage-shared/vrm-attachments'
 
-import localforage from 'localforage'
-
 import { errorMessageFrom } from '@moeru/std'
 import { DEFAULT_VRM_ATTACHMENT_TRANSFORM, vrmAttachmentFormatFromFileName } from '@proj-airi/stage-shared/vrm-attachments'
 import { useBroadcastChannel, useLocalStorage } from '@vueuse/core'
 import { nanoid } from 'nanoid'
 import { defineStore } from 'pinia'
+import { prefixStorage } from 'unstorage'
 import { onScopeDispose, reactive, ref, watch } from 'vue'
 
+import { storage } from '../database/storage'
+
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
-const ASSET_STORE_NAME = 'airi-vrm-attachments'
 const ATTACHMENT_CHANNEL = 'airi-vrm-attachments'
 
-const attachmentFiles = localforage.createInstance({
-  name: ASSET_STORE_NAME,
-  storeName: 'assets',
-})
+// The raw keys stay `vrm-attachment:<id>` so files written by the previous localforage store remain readable.
+const attachmentFiles = prefixStorage(storage, 'vrm-attachments')
 
 function fileKey(assetId: string) {
   return `vrm-attachment:${assetId}`
@@ -92,7 +90,7 @@ export const useVrmAttachmentsStore = defineStore('vrm-attachments', () => {
         for (const asset of assets.value) {
           if (assetUrls[asset.id])
             continue
-          const blob = await attachmentFiles.getItem<Blob>(fileKey(asset.id))
+          const blob = await attachmentFiles.getItemRaw<Blob>(fileKey(asset.id))
           if (blob)
             createAssetUrl(asset.id, blob)
         }
@@ -125,7 +123,7 @@ export const useVrmAttachmentsStore = defineStore('vrm-attachments', () => {
       throw new Error('Attachment files must be between 1 byte and 100 MB.')
 
     const id = nanoid()
-    await attachmentFiles.setItem(fileKey(id), file)
+    await attachmentFiles.setItemRaw(fileKey(id), file)
     const asset: VrmAttachmentAsset = {
       id,
       name: file.name.replace(/\.(?:glb|vrm)$/i, '').trim() || file.name,

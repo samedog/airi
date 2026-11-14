@@ -11,9 +11,9 @@ artifacts, not the source of truth.
 - Original custom line base: `335f6cac7` (`v0.13.1` plus three upstream commits)
 - Current custom branch: `main`
 - Electron: upstream `43.8.4`
-- Last upstream sync: PR #1 (`custom/airi-main`) at `a0d1b2ce0`
-- Upstream merge target: `upstream/main` at `a0d1b2ce0` (2026-11-08)
-- Current patch baseline: `upstream/main` at `a0d1b2ce0`
+- Last upstream sync: PR #3 (`samedog/sync/upstream-2026-11-14`) at `26b691f57`
+- Upstream merge target: `upstream/main` at `26b691f57` (2026-11-14)
+- Current patch baseline: `upstream/main` at `26b691f57`
 - Current patch artifact: `patches/airi-custom-upstream-main.patch`
 
 The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases.
@@ -23,8 +23,8 @@ accepted.
 
 ## Fork highlights
 
-- **Beat Sync:** Linux `parec`/PipeWire system-audio capture, selectable sources, HIT/Vibe analysis,
-  HIT-driven VRM dance speed, dance energy tiers, and a recoverable hidden detector window.
+- **Beat Sync:** Linux `parec`/PipeWire system-audio capture, selectable sources, onset/tempo analysis,
+  BPM-driven VRM dance speed, dance energy tiers, and a recoverable hidden detector window.
 - **VRM animations:** user-local `.vrma` library, multiple clips per slot, dance energy tags, idle
   rotation, preview/delete, model-scoped bindings, and ACT motion resolution.
 - **VRM parts and attachments:** per-model mesh visibility, categorized radial menu, manual
@@ -124,7 +124,7 @@ actually removes the other platform builds.
   use it; it is no longer part of the Beat Sync page.
 
 Reason: Beat Sync needs a Linux desktop audio path, a selectable source, and a speed signal that
-responds to musical transients without the Tempora worklet dependency.
+follows the musical tempo without the Tempora worklet dependency.
 
 ### VRM animation library and speech playback
 
@@ -139,9 +139,9 @@ responds to musical transients without the Tempora worklet dependency.
   - duplicate IDs are removed, with the last valid energy tag winning;
   - selection avoids the previous clip when another choice exists;
   - idle clips rotate after at least 20 seconds, and only on completed loops.
-- Dance clips can be tagged Calm, Medium, or Intense. Beat Sync Vibe energy selects the tier; dance
-  speed follows the HIT pulse, not a BPM estimate. Dance face expressions are relaxed, happy, or
-  angry by tier, with ACT and speech expressions taking precedence.
+- Dance clips can be tagged Calm, Medium, or Intense. Beat Sync Vibe energy selects the tier, and
+  dance speed follows the detected BPM. Dance face expressions are relaxed, happy, or angry by tier,
+  with ACT and speech expressions taking precedence.
 - Bindings are model-scoped:
   - the live settings window stores them under `settings/vrm/animation-bindings`;
   - a BroadcastChannel keeps Tamagotchi and Kirie windows in sync;
@@ -178,6 +178,7 @@ and dance intensity can select among them.
 
 - Added per-model mesh visibility for loaded VRM models:
   - right-click the stage or use the eye button to open the radial menu;
+  - the stage stops the `contextmenu` event, so the desktop app menu does not open from the same right-click;
   - Body, Outfit, Accessories, Extras, and Attachments categories;
   - each category shows the number of available items and opens a second ring;
   - interaction raycaster colliders and spring-bone colliders are excluded;
@@ -189,6 +190,8 @@ and dance intensity can select among them.
   - automatic classification uses mesh and material names, including names sanitized by Three.js.
 - Added a global attachment library for `.glb` and `.vrm` files:
   - files live in IndexedDB under the `airi-vrm-attachments` store;
+  - files use the shared `database/storage` unstorage mount `vrm-attachments`, with raw keys
+    `vrm-attachment:<id>` that remain compatible with the earlier localforage store;
   - metadata is stored under `settings/vrm/attachment-assets`;
   - per-model bindings are stored under `settings/vrm/attachment-bindings`;
   - a BroadcastChannel keeps settings and stage windows in sync.
@@ -211,8 +214,9 @@ mesh IDs rather than per-vertex bone-weight masks.
 
 ### Stage and Kirie parity
 
-- `Stage.vue` owns the HIT pulse state, dance-tier expressions, expression priority, and the 2s Vibe
-  watchdog. It ignores stale Vibe frames after shutdown and clamps incoming HIT values.
+- `Stage.vue` owns the BPM-driven dance speed, dance-tier expressions, expression priority, and the
+  2s Vibe watchdog. It ignores stale Vibe frames after shutdown and clamps the incoming BPM and
+  energy.
 - The Kirie renderer mirrors the Beat Sync renderer, VRM preview bridge, and model-settings runtime
   changes. Keep `apps/stage-tamagotchi` and `apps/stage-tamagotchi-kirie` in sync for these files.
 - The shared `vrm-idle-loop-registry` keeps idle-loop listeners attached to the mixer, not to a
@@ -220,10 +224,12 @@ mesh IDs rather than per-vertex bone-weight masks.
 
 ### Tray and window close
 
-- `controls-island/index.vue` now invokes `electronWindowClose` instead of `electronAppQuit`.
+- Upstream moved the Island menu into `controls-island/controls-island-menu.vue`.
+- The menu's app-exit action invokes `electronWindowClose` instead of `electronAppQuit`, and shows
+  the `controls-island.close` label.
 - The existing main-window `hideOnClose()` handler then hides AIRI to the tray.
 
-Reason: the Stage close button should close the UI, not terminate the app. Quit remains in the tray
+Reason: the Stage close action should close the UI, not terminate the app. Quit remains in the tray
 menu.
 
 ### Shortcut defaults
@@ -302,7 +308,7 @@ mechanism.
    pnpm install
    pnpm typecheck
    pnpm --filter @proj-airi/stage-shared exec vitest run src/beat-sync src/vrm-animations.test.ts
-   pnpm --filter @proj-airi/stage-ui exec vitest run src/constants/beat-sync-pulse.test.ts src/stores/modules/airi-card.test.ts src/constants/prompts/vrm-act.test.ts --project node
+   pnpm --filter @proj-airi/stage-ui exec vitest run src/stores/modules/airi-card.test.ts src/constants/prompts/vrm-act.test.ts --project node
    pnpm --filter @proj-airi/stage-ui-three exec vitest run src/composables/vrm/animation.test.ts
    pnpm --filter @proj-airi/stage-tamagotchi build:unpack
    ```
