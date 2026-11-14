@@ -15,7 +15,7 @@ import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import { normalizeActPayload, Playback } from '@proj-airi/pipelines-audio'
 import { presenceBubbleIdle, presenceBubbleThinking } from '@proj-airi/stage-shared'
-import { BEAT_SYNC_HIT_COOLDOWN_MS, BEAT_SYNC_HIT_THRESHOLD, getBeatSyncState, listenBeatSyncStateChange, listenBeatSyncVibeSignal } from '@proj-airi/stage-shared/beat-sync'
+import { BEAT_SYNC_DANCE_BASE_BPM, getBeatSyncState, listenBeatSyncStateChange, listenBeatSyncVibeSignal, MAX_BEAT_SYNC_DANCE_SPEED, MIN_BEAT_SYNC_DANCE_SPEED } from '@proj-airi/stage-shared/beat-sync'
 import { selectVrmAnimationAssetId, selectVrmAnimationClipByEnergy, selectVrmAnimationEnergyTier, VRM_ANIMATION_ENERGY_INTENSE, VRM_ANIMATION_ENERGY_MEDIUM, vrmAnimationSlotFromMotion } from '@proj-airi/stage-shared/vrm-animations'
 import { createLive2D, Live2DScene, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { MMDScene } from '@proj-airi/stage-ui-mmd'
@@ -37,7 +37,6 @@ import StageRenderError from './stage-render-error.vue'
 import VrmMeshRadialMenu from './vrm-mesh-radial-menu.vue'
 
 // import { useDuckDb } from '../../composables/use-duck-db'
-import { clampBeatSyncHitWindow, dancePulseRate, dancePulseTargetSpeed } from '../../constants/beat-sync-pulse'
 import { Emotion, EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
 import { useLive2DStageMotionMagic } from '../../features/motions/live2d/use-live2d-stage-motion-magic'
 import { createAvatarTouchAggregator } from '../../libs/avatar-touch/notify'
@@ -53,7 +52,7 @@ import { useSharedLive2DExpressionPreview } from '../../stores/live2d'
 import { useAiriCardStore } from '../../stores/modules/airi-card'
 import { useSpeechStore } from '../../stores/modules/speech'
 import { useSettingsPresenceBubble } from '../../stores/presence-bubble'
-import { useSettings, useSettingsBeatSync } from '../../stores/settings'
+import { useSettings } from '../../stores/settings'
 import { useSettingsStageModel } from '../../stores/settings/stage-model'
 import { useSpeechOutputControlStore } from '../../stores/speech-output-control'
 import { useVoiceStore } from '../../stores/voice'
@@ -298,8 +297,6 @@ function resetAssistantSpeechSurface(source: string) {
 }
 
 const { activeCardId: selectedCharacterId, activeCard, selectedAvatarModel, ready: cardsReady } = storeToRefs(useAiriCardStore())
-const beatSyncSettings = useSettingsBeatSync()
-const { dancePulseHits } = storeToRefs(beatSyncSettings)
 const vrmAnimationsStore = useVrmAnimationsStore()
 const storedVrmAnimationBindings = computed<VrmAnimationBindings>(() => {
   const avatarModel = selectedAvatarModel.value
@@ -313,9 +310,6 @@ const vrmDanceAnimation = ref<string>()
 const beatSyncActive = ref(false)
 const beatSyncEnergy = ref(0)
 const beatSyncPulseSpeed = ref(1)
-const hitTimes: number[] = []
-let hitArmed = true
-let lastHitAt = Number.NEGATIVE_INFINITY
 let lastVibeAt = Number.NEGATIVE_INFINITY
 let vibeWatchdog: ReturnType<typeof setInterval> | undefined
 const VIBE_TIMEOUT_MS = 2000
@@ -360,17 +354,7 @@ const DANCE_TIER_EXPRESSIONS = [
   { minEnergy: VRM_ANIMATION_ENERGY_MEDIUM, expression: 'happy', intensity: 0.7 },
   { minEnergy: 0, expression: 'relaxed', intensity: 0.6 },
 ] as const
-const DANCE_HIT_THRESHOLD = BEAT_SYNC_HIT_THRESHOLD
-const DANCE_HIT_COOLDOWN_MS = BEAT_SYNC_HIT_COOLDOWN_MS
-const DANCE_HIT_TIMEOUT_MS = 1500
 const DANCE_PULSE_SMOOTHING = 0.08
-/** Global speed trim for Beat Sync dance playback. */
-const VRM_DANCE_SPEED_SCALE = 0.75
-/**
- * Effective Beat Sync dance speed is clamped to 0.5x..1.5x. The 0.75 trim
- * would reach 0.375x at the pulse minimum, so this floor intentionally wins.
- */
-const MIN_VRM_DANCE_SPEED = 0.5
 let disposeBeatSyncState: (() => void) | undefined
 let disposeBeatSyncVibe: (() => void) | undefined
 let beatSyncScopeDisposed = false
@@ -382,7 +366,7 @@ const vrmBaseAnimation = computed(() => {
 })
 const vrmBaseAnimationSpeed = computed(() => {
   if (beatSyncActive.value && vrmDanceAnimation.value)
-    return Math.max(MIN_VRM_DANCE_SPEED, beatSyncPulseSpeed.value * VRM_DANCE_SPEED_SCALE)
+    return Math.min(MAX_BEAT_SYNC_DANCE_SPEED, Math.max(MIN_BEAT_SYNC_DANCE_SPEED, beatSyncPulseSpeed.value))
   return 1
 })
 
@@ -408,7 +392,7 @@ function applySavedVrmMeshVisibility() {
 function saveVrmMeshVisibility(nodeId: string, visible: boolean) {
   const modelKey = vrmMeshModelKey.value
   const modelVisibility = {
-    ...(vrmMeshVisibilityByModel.value[modelKey] ?? {}),
+    ...vrmMeshVisibilityByModel.value[modelKey],
     [nodeId]: visible,
   }
   vrmMeshVisibilityByModel.value = {
@@ -467,7 +451,7 @@ function toggleVrmAttachment(bindingId: string) {
 
 function recategorizeVrmMeshNode(node: VrmMeshNode, category: VrmMeshCategory | null) {
   const modelKey = vrmMeshModelKey.value
-  const nextCategories = { ...(vrmMeshCategoryByModel.value[modelKey] ?? {}) }
+  const nextCategories = { ...vrmMeshCategoryByModel.value[modelKey] }
   if (category)
     nextCategories[node.id] = category
   else
@@ -593,9 +577,6 @@ watch(
 watch(beatSyncActive, (active) => {
   activeDanceExpressionTier = undefined
   beatSyncPulseSpeed.value = 1
-  hitTimes.length = 0
-  hitArmed = true
-  lastHitAt = Number.NEGATIVE_INFINITY
   lastVibeAt = performance.now() / 1000
   if (vibeWatchdog) {
     clearInterval(vibeWatchdog)
@@ -609,7 +590,6 @@ watch(beatSyncActive, (active) => {
       if (now - lastVibeAt <= VIBE_TIMEOUT_MS / 1000)
         return
       beatSyncEnergy.value = 0
-      hitTimes.length = 0
       beatSyncPulseSpeed.value += (1 - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
       applyDanceTierExpression()
     }, 500)
@@ -626,48 +606,21 @@ watch(beatSyncActive, (active) => {
   }
 })
 
-function onBeatSyncVibe({ energy, hit }: { energy: number, hit: number }) {
+function onBeatSyncVibe({ energy, bpm }: { energy: number, bpm: number }) {
   // A stopped detector can still deliver an already-queued frame. Do not let
-  // that frame seed energy or HIT state for the next activation.
+  // that frame seed energy or speed for the next activation.
   if (!beatSyncActive.value)
     return
 
   const safeEnergy = Number.isFinite(energy) ? Math.min(1, Math.max(0, energy)) : 0
-  const safeHit = Number.isFinite(hit) ? Math.min(1, Math.max(0, hit)) : 0
+  const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 0
   beatSyncEnergy.value = safeEnergy
+  lastVibeAt = performance.now() / 1000
 
-  const now = performance.now() / 1000
-  lastVibeAt = now
-  if (safeHit < DANCE_HIT_THRESHOLD * 0.5)
-    hitArmed = true
-  if (
-    safeHit >= DANCE_HIT_THRESHOLD
-    && hitArmed
-    && (now - lastHitAt) * 1000 >= DANCE_HIT_COOLDOWN_MS
-  ) {
-    hitArmed = false
-    lastHitAt = now
-    hitTimes.push(now)
-  }
-
-  const hitWindow = clampBeatSyncHitWindow(dancePulseHits.value)
-  while (hitTimes.length > hitWindow)
-    hitTimes.shift()
-
-  const hasTimedOut = Number.isFinite(lastHitAt)
-    && (now - lastHitAt) * 1000 > DANCE_HIT_TIMEOUT_MS
-  if (hasTimedOut) {
-    hitTimes.length = 0
-    hitArmed = true
-    beatSyncPulseSpeed.value += (1 - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
-  }
-  else {
-    const rate = dancePulseRate(hitTimes, now)
-    if (rate !== undefined) {
-      const targetSpeed = dancePulseTargetSpeed(rate)
-      beatSyncPulseSpeed.value += (targetSpeed - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
-    }
-  }
+  const targetSpeed = safeBpm > 0
+    ? Math.min(MAX_BEAT_SYNC_DANCE_SPEED, Math.max(MIN_BEAT_SYNC_DANCE_SPEED, safeBpm / BEAT_SYNC_DANCE_BASE_BPM))
+    : 1
+  beatSyncPulseSpeed.value += (targetSpeed - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
 
   applyDanceTierExpression()
 }

@@ -3,16 +3,19 @@ import type { BeatSyncAudioSource, BeatSyncDetectorState, BeatSyncVibe } from '@
 
 import { errorMessageFrom } from '@moeru/std'
 import {
+  BEAT_SYNC_DANCE_BASE_BPM,
+  BEAT_SYNC_TEMPO_BUFFER_HITS,
   getBeatSyncState,
   listBeatSyncAudioSources,
   listenBeatSyncStateChange,
   listenBeatSyncVibeSignal,
+  MAX_BEAT_SYNC_DANCE_SPEED,
   MAX_BEAT_SYNC_VIBE_ENERGY_GAIN,
+  MIN_BEAT_SYNC_DANCE_SPEED,
   MIN_BEAT_SYNC_VIBE_ENERGY_GAIN,
   toggleBeatSync,
   updateBeatSyncVibeParameters,
 } from '@proj-airi/stage-shared/beat-sync'
-import { MAX_BEAT_SYNC_HIT_WINDOW, MIN_BEAT_SYNC_HIT_WINDOW } from '@proj-airi/stage-ui/constants/beat-sync-pulse'
 import { useSettingsBeatSync } from '@proj-airi/stage-ui/stores/settings'
 import { Alert, Button, FieldRange, FieldSelect, SettingsCard } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
@@ -21,16 +24,38 @@ import { useI18n } from 'vue-i18n'
 
 const state = ref<BeatSyncDetectorState>()
 const beatSyncSettings = useSettingsBeatSync()
-const { audioSourceId, vibeEnergyGain, dancePulseHits } = storeToRefs(beatSyncSettings)
+const { audioSourceId, vibeEnergyGain } = storeToRefs(beatSyncSettings)
 const audioSources = ref<BeatSyncAudioSource[]>([])
 const isLoadingAudioSources = ref(false)
 const starting = ref(false)
 const audioSourceError = ref<string>()
 const startError = ref<string>()
-const vibe = ref<BeatSyncVibe>({ energy: 0, punch: 0, hit: 0 })
+const EMPTY_VIBE: BeatSyncVibe = {
+  energy: 0,
+  hit: 0,
+  bpm: 0,
+  bpmConfidence: 0,
+  lastHitDeltaMs: 0,
+  hitCount: 0,
+  tempoBufferMs: 0,
+}
+const vibe = ref<BeatSyncVibe>({ ...EMPTY_VIBE })
 const energyPercent = computed(() => Math.round(vibe.value.energy * 100))
-const punchPercent = computed(() => Math.round(vibe.value.punch * 100))
 const hitPercent = computed(() => Math.round(vibe.value.hit * 100))
+const bpmDisplay = computed(() => vibe.value.bpm > 0 ? Math.round(vibe.value.bpm) : '—')
+const bpmConfidencePercent = computed(() => Math.round(vibe.value.bpmConfidence * 100))
+const lastHitDeltaDisplay = computed(() => vibe.value.lastHitDeltaMs > 0 ? `${Math.round(vibe.value.lastHitDeltaMs)} ms` : '—')
+const hitBufferDisplay = computed(() => `${vibe.value.hitCount}/${BEAT_SYNC_TEMPO_BUFFER_HITS}`)
+const tempoBufferSpanDisplay = computed(() => vibe.value.tempoBufferMs > 0 ? `${(vibe.value.tempoBufferMs / 1000).toFixed(1)} s` : '—')
+const danceSpeedDisplay = computed(() => {
+  if (vibe.value.bpm <= 0)
+    return '1.00×'
+  const speed = Math.min(
+    MAX_BEAT_SYNC_DANCE_SPEED,
+    Math.max(MIN_BEAT_SYNC_DANCE_SPEED, vibe.value.bpm / BEAT_SYNC_DANCE_BASE_BPM),
+  )
+  return `${speed.toFixed(2)}×`
+})
 const audioSourceOptions = computed(() => audioSources.value.map(source => ({
   label: source.label,
   value: source.id,
@@ -113,7 +138,7 @@ onMounted(() => {
         startError.value = undefined
       }
       else {
-        vibe.value = { energy: 0, punch: 0, hit: 0 }
+        vibe.value = { ...EMPTY_VIBE }
       }
     }),
     listenBeatSyncVibeSignal((next) => {
@@ -219,16 +244,6 @@ onMounted(() => {
             :format-value="value => `${Math.round(value * 100)}%`"
           />
 
-          <FieldRange
-            v-model="dancePulseHits"
-            :label="t('settings.pages.modules.beat_sync.sections.vibe.hit_window.label')"
-            :description="t('settings.pages.modules.beat_sync.sections.vibe.hit_window.description')"
-            :min="MIN_BEAT_SYNC_HIT_WINDOW"
-            :max="MAX_BEAT_SYNC_HIT_WINDOW"
-            :step="1"
-            :format-value="value => `${value} hits`"
-          />
-
           <div>
             <div class="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
               <span>{{ t('settings.pages.modules.beat_sync.sections.vibe.energy') }}</span>
@@ -244,19 +259,6 @@ onMounted(() => {
 
           <div>
             <div class="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
-              <span>{{ t('settings.pages.modules.beat_sync.sections.vibe.punch') }}</span>
-              <span>{{ punchPercent }}%</span>
-            </div>
-            <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-              <div
-                class="h-full rounded-full bg-amber-400"
-                :style="{ width: `${punchPercent}%` }"
-              />
-            </div>
-          </div>
-
-          <div>
-            <div class="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
               <span>{{ t('settings.pages.modules.beat_sync.sections.vibe.hit') }}</span>
               <span>{{ hitPercent }}%</span>
             </div>
@@ -265,6 +267,37 @@ onMounted(() => {
                 class="h-full rounded-full bg-emerald-400"
                 :style="{ width: `${hitPercent}%` }"
               />
+            </div>
+          </div>
+
+          <div class="mt-1 border-t border-neutral-200 pt-3 dark:border-neutral-700">
+            <div class="mb-2 flex items-baseline justify-between">
+              <span class="text-xs text-neutral-500 tracking-wide uppercase dark:text-neutral-400">Detected tempo</span>
+              <span class="text-lg font-semibold tabular-nums">
+                {{ bpmDisplay }} <span class="text-xs text-neutral-500 dark:text-neutral-400">BPM</span>
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600 dark:text-neutral-300">
+              <div class="flex justify-between gap-2">
+                <span>Confidence</span>
+                <span class="tabular-nums">{{ bpmConfidencePercent }}%</span>
+              </div>
+              <div class="flex justify-between gap-2">
+                <span>Last HIT</span>
+                <span class="tabular-nums">{{ lastHitDeltaDisplay }}</span>
+              </div>
+              <div class="flex justify-between gap-2">
+                <span>Dance</span>
+                <span class="tabular-nums">{{ danceSpeedDisplay }}</span>
+              </div>
+              <div class="flex justify-between gap-2">
+                <span>HITs</span>
+                <span class="tabular-nums">{{ hitBufferDisplay }}</span>
+              </div>
+              <div class="flex justify-between gap-2">
+                <span>Onset window</span>
+                <span class="tabular-nums">{{ tempoBufferSpanDisplay }}</span>
+              </div>
             </div>
           </div>
         </div>

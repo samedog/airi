@@ -766,16 +766,12 @@ pages:
           title: Audio source
         vibe:
           title: Vibe
-          description: Energy follows loudness. Punch marks transients. Hit measures musical changes and drives dance speed.
+          description: Energy follows loudness. Hit measures musical transients and feeds the tempo detector. BPM drives dance speed.
           energy: Energy
-          punch: Punch
           hit: Hit
           sensitivity:
             label: Energy sensitivity
             description: Raise this when loud, compressed tracks never reach the higher dance tiers.
-          hit_window:
-            label: Hit window
-            description: Number of recent HITs used to set the dance speed. Shorter reacts faster; longer is steadier.
     artistry:
       title: Artistry
       description: Image generation, scene background and drawing.

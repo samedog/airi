@@ -23,9 +23,9 @@
 >
 > The Linux-only feature is Beat Sync system audio capture through `parec` and PipeWire/PulseAudio.
 > It records a selected monitor source instead of using screen-capture loopback.
-> The Beat Sync detector has been replaced with a local HIT/Vibe engine: Vibe exposes energy, punch,
-> and transient hit; HIT density drives VRM dance speed and energy tiers. The hidden detector window
-> is recoverable after close or renderer crash.
+> The Beat Sync detector has been replaced with a local onset/tempo engine: Vibe exposes energy and
+> transient HIT; onset autocorrelation drives VRM dance speed, while energy selects dance tiers. The
+> hidden detector window is recoverable after close or renderer crash.
 >
 > VRM animations are a user-local library: multiple clips per slot, dance energy tags, idle rotation,
 > preview/delete, model-scoped bindings, and ACT motion resolution. Only the upstream idle animation
