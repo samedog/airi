@@ -237,7 +237,9 @@ export function useModulesList() {
     if (!beatSyncSupported)
       return
 
-    getBeatSyncState().then(initialState => beatSyncState.value = initialState)
+    getBeatSyncState()
+      .then(initialState => beatSyncState.value = initialState)
+      .catch(error => console.warn('[modules] Failed to read Beat Sync state', error))
     const removeListener = listenBeatSyncStateChange(newState => beatSyncState.value = { ...newState })
     onUnmounted(() => removeListener())
   })

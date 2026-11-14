@@ -613,43 +613,6 @@ pages:
             stop: 停止
           description: 請選取要偵測節拍的音訊來源
           title: 音訊來源
-        beat_visualizer:
-          title: 節拍視覺化工具
-        parameters:
-          advanced_parameters: 進階參數
-          description: 調整節拍檢測參數。
-          title: 參數
-          parameters:
-            adaptive_threshold:
-              description: >-
-                是否根據訊號隨時間的變異性套用自適應閾值。
-              label: 自適應閾值
-            buffer_duration:
-              description: 內部分析緩衝區的時長。
-              label: 緩衝時長
-            envelope_filter_frequency:
-              description: >-
-                用於平滑能量變化的包絡濾波器頻率
-              label: 包絡濾波器頻率
-            highpass_filter_frequency:
-              description: >-
-                用於抑制次低音等低頻雜訊的高通濾波器頻率。
-              label: 高通濾波器頻率
-            lowpass_filter_frequency:
-              description: >-
-                低通濾波器的頻率是用來降低像人聲等高頻成分。
-              label: 低通濾波器
-            min_beat_interval:
-              description: 已偵測節拍之間的最大分鐘節拍數(BPM)或最小間隔。
-              label: 最大分鐘節拍數(BPM)/最小節拍間隔
-            sensitivity:
-              label: 靈敏度
-            spectral_flux:
-              description: 是否啟用基於頻譜通量的起始點偵測。
-              label: 頻譜通量
-            warmup:
-              description: 是否在偵測節拍前進行預熱以提高準確度。
-              label: 預熱
     artistry:
       title: 繪圖
       description: 圖像生成、場景背景與繪圖。

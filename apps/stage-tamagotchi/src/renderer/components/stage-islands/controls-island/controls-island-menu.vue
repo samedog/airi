@@ -18,12 +18,12 @@ import { computed, onScopeDispose, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import {
-  electronAppQuit,
   electronAuthCallback,
   electronAuthCallbackError,
   electronAuthStartLogin,
   electronCenterMainWindow,
   electronOpenSettings,
+  electronWindowClose,
   noticeWindowEventa,
 } from '../../../../shared/eventa'
 import { useControlsIslandStore } from '../../../stores/controls-island'
@@ -46,7 +46,7 @@ const { t } = useI18n()
 const context = useElectronEventaContext()
 const { trackControlsIslandAction } = useAnalytics()
 const openSettings = useElectronEventaInvoke(electronOpenSettings)
-const quitApp = useElectronEventaInvoke(electronAppQuit)
+const closeWindow = useElectronEventaInvoke(electronWindowClose)
 const centerMainWindow = useElectronEventaInvoke(electronCenterMainWindow)
 const startSigningIn = useElectronEventaInvoke(electronAuthStartLogin)
 const requestNotice = useElectronEventaInvoke(noticeWindowEventa.openWindow)
@@ -178,7 +178,7 @@ function centerWindow() {
 
 function quit() {
   trackControlsIslandAction({ action: 'close_app' })
-  quitApp()
+  closeWindow()
 }
 
 watch(open, (opened) => {
@@ -327,7 +327,7 @@ useBackdropSurface(() => characterSurfaceAnchor.value?.closest<HTMLElement>('[ro
       {{ t('tamagotchi.stage.controls-island.settings') }}
     </MenuItem>
     <MenuItem data-testid="controls-island-quit" @select="quit">
-      {{ t('tamagotchi.stage.controls-island.quit') }}
+      {{ t('tamagotchi.stage.controls-island.close') }}
     </MenuItem>
   </DropdownMenu>
 </template>

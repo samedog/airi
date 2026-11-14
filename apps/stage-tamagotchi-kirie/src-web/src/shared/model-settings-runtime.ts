@@ -8,6 +8,8 @@ export const modelSettingsRuntimeChannelName = 'airi-model-settings-runtime'
 export const modelSettingsRuntimeSnapshotRequested = defineEventa<void>('eventa:model-settings-runtime:snapshot:request')
 export const modelSettingsRuntimeSnapshotChanged = defineEventa<ModelSettingsRuntimeSnapshot>('eventa:model-settings-runtime:snapshot:changed')
 export const modelSettingsRuntimeOwnerGone = defineEventa<{ ownerInstanceId: string }>('eventa:model-settings-runtime:owner:gone')
+export const modelSettingsPreviewAnimationRequested = defineEventa<{ assetId: string }>('eventa:model-settings-runtime:preview-animation:request')
+export const modelSettingsPreviewAnimationStopRequested = defineEventa<void>('eventa:model-settings-runtime:preview-animation:stop')
 
 let context: ReturnType<typeof createBroadcastChannelContext>['context'] | undefined
 

@@ -243,7 +243,7 @@ const setupTrayOnce = once((params: SetupTrayParams): void => {
       ...shouldOpenDevTools()
         ? [
             { type: 'header', label: params.i18n.t('tamagotchi.electron.tray.menu.labels.label.devtools') },
-            { label: params.i18n.t('tamagotchi.electron.tray.menu.labels.label.troubleshoot_beatsync'), click: () => params.beatSyncBgWindow.webContents.openDevTools({ mode: 'detach' }) },
+            { label: params.i18n.t('tamagotchi.electron.tray.menu.labels.label.troubleshoot_beatsync'), click: () => { void params.beatSyncBgWindow.openDevTools().catch(error => console.warn('[tray] Failed to open Beat Sync devtools', error)) } },
             { type: 'separator' },
           ] as const
         : [],

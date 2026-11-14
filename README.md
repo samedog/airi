@@ -14,6 +14,30 @@
 
 <h1 align="center">Project AIRI</h1>
 
+> [!NOTE]
+> This is **samedog's AIRI fork**, a Linux/Wayland-focused build of Project AIRI.
+> It carries a focused custom patch set on the fork's `main` branch, based on upstream `main`
+> at `a0d1b2ce0` (2026-11-08). Upstream sync is patch-first: the customization patch is applied
+> to a fresh upstream base and reviewed before it reaches `main`. See
+> [CUSTOMIZATIONS.md](./CUSTOMIZATIONS.md) for the change list and sync process.
+>
+> The Linux-only feature is Beat Sync system audio capture through `parec` and PipeWire/PulseAudio.
+> It records a selected monitor source instead of using screen-capture loopback.
+> The Beat Sync detector has been replaced with a local onset/tempo engine: Vibe exposes energy and
+> transient HIT; onset autocorrelation drives VRM dance speed, while energy selects dance tiers. The
+> hidden detector window is recoverable after close or renderer crash.
+>
+> VRM animations are a user-local library: multiple clips per slot, dance energy tags, idle rotation,
+> preview/delete, model-scoped bindings, and ACT motion resolution. Only the upstream idle animation
+> is bundled. Imported clips stay on the device and are not part of the source tree.
+>
+> Other desktop fixes target KDE and Wayland but remain cross-platform in source. This fork is not a
+> replacement for upstream and does not drop support for other platforms. Release buttons below point
+> at upstream Project AIRI; this fork does not publish a signed updater feed.
+>
+> See [CUSTOMIZATIONS.md](./CUSTOMIZATIONS.md) for the full change list and update process.
+
+
 <p align="center">Re-creating Neuro-sama, a soul container of AI waifu / virtual characters to bring them into our world.</p>
 
 <p align="center">

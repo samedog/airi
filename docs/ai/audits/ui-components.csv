@@ -341,7 +341,7 @@ packages/stage-pages/src/pages/settings/index.vue,page,,,@proj-airi/stage-ui/com
 packages/stage-pages/src/pages/settings/memory/index.vue,page,,,@proj-airi/stage-ui/components:WIP,,,
 packages/stage-pages/src/pages/settings/models/index.vue,page,,,@proj-airi/stage-ui/components/scenarios/settings/model-settings:ModelSettings,,,
 packages/stage-pages/src/pages/settings/modules/artistry.vue,page,,,@proj-airi/stage-ui/components:RadioCardSimple,,,
-packages/stage-pages/src/pages/settings/modules/beat-sync.vue,page,,,@proj-airi/stage-ui/components:Alert | @proj-airi/stage-ui/components:AudioSpectrumVisualizer | @proj-airi/ui:Button | @proj-airi/ui:FieldCheckbox | @proj-airi/ui:FieldRange | @proj-airi/ui:SelectTab,,button:198,
+packages/stage-pages/src/pages/settings/modules/beat-sync.vue,page,,,@proj-airi/stage-ui/components:Alert | @proj-airi/ui:Button | @proj-airi/ui:FieldRange | @proj-airi/ui:FieldSelect | @proj-airi/ui:SettingsCard,,button:198,
 packages/stage-pages/src/pages/settings/modules/components/hearing-playground-segment.vue,page,,,,,,
 packages/stage-pages/src/pages/settings/modules/components/hearing-playground-transcripts.vue,page,,,,packages/stage-pages/src/pages/settings/modules/components/hearing-playground-segment.vue,,
 packages/stage-pages/src/pages/settings/modules/consciousness.vue,page,,,@proj-airi/stage-ui/components:Alert | @proj-airi/stage-ui/components:ErrorContainer | @proj-airi/stage-ui/components:RadioCardManySelect | @proj-airi/stage-ui/components:RadioCardSimple | @proj-airi/ui:FieldCheckbox | @proj-airi/ui:FieldRange,,button:117 | input:200 | input:292,

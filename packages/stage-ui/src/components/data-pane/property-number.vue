@@ -14,8 +14,10 @@ interface RangeConfig {
 const props = withDefaults(defineProps<{
   label?: string
   config?: RangeConfig
+  scrub?: boolean
 }>(), {
   label: 'Range',
+  scrub: true,
 })
 
 const modelValue = defineModel<number>({ required: true })
@@ -177,6 +179,7 @@ onUnmounted(() => {
   >
     <span h-fit w-full inline-flex items-center gap-2 text-xs>
       <span
+        v-if="props.scrub"
         cursor-col-resize
         select-none
         :class="{ 'text-blue-500': isDragging }"
