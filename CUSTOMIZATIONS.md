@@ -15,6 +15,7 @@ artifacts, not the source of truth.
 - Upstream merge target: `upstream/main` at `36113ac5c` (2026-11-16)
 - Current patch baseline: `upstream/main` at `36113ac5c`
 - Current patch artifact: `patches/airi-custom-upstream-main.patch`
+- Fork version: `0.15.5` across all workspace manifests (PR #5). `upstream/main` still reports `0.15.4`, so keep the fork version through a sync and bump it again at release time. The Pocket Android and iOS build-number files keep the upstream values because this fork ships the Linux desktop build.
 
 The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases.
 The previous custom tree is preserved on `custom/airi-v0.12`. Upstream is merged deliberately
