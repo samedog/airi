@@ -613,43 +613,6 @@ pages:
             stop: Dừng
           description: Chọn nguồn âm thanh để nhận diện nhịp điệu.
           title: Nguồn âm thanh
-        beat_visualizer:
-          title: Trình trực quan hóa nhịp
-        parameters:
-          advanced_parameters: Thông số nâng cao
-          description: Tinh chỉnh các thông số nhận diện nhịp điệu.
-          title: Thông số
-          parameters:
-            adaptive_threshold:
-              description: >-
-                Áp dụng ngưỡng thích ứng dựa trên sự biến thiên tín hiệu theo thời gian.
-              label: Ngưỡng thích ứng
-            buffer_duration:
-              description: Thời gian của bộ đệm phân tích nội bộ.
-              label: Thời lượng bộ đệm
-            envelope_filter_frequency:
-              description: >-
-                Tần số cho bộ lọc bao bì (envelope filter) để làm mượt các thay đổi năng lượng.
-              label: Tần số lọc bao bì
-            highpass_filter_frequency:
-              description: >-
-                Tần số cho bộ lọc thông cao giúp giảm tần số thấp như tiếng ồn trầm.
-              label: Tần số lọc thông cao
-            lowpass_filter_frequency:
-              description: >-
-                Tần số cho bộ lọc thông thấp giúp giảm tần số cao như giọng hát.
-              label: Tần số lọc thông thấp
-            min_beat_interval:
-              description: BPM tối đa hoặc khoảng thời gian tối thiểu giữa các nhịp được phát hiện.
-              label: BPM tối đa / Khoảng nhịp tối thiểu
-            sensitivity:
-              label: Độ nhạy
-            spectral_flux:
-              description: Bật phát hiện dựa trên thông lượng phổ (spectral flux).
-              label: Thông lượng phổ
-            warmup:
-              description: Làm nóng trước khi nhận diện để đạt độ chính xác cao hơn.
-              label: Khởi động (Warmup)
     artistry:
       title: Nghệ thuật
       description: Tạo ảnh, cảnh nền và tranh ảnh.

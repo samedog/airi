@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
+import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
-import type { VrmInteractionTarget } from '@proj-airi/stage-ui-three'
+import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
+import type { VrmInteractionTarget, VrmMeshCategory, VrmMeshNode } from '@proj-airi/stage-ui-three'
 
 import type { EmotionPayload } from '../../constants/emotions'
 
@@ -13,23 +15,26 @@ import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import { normalizeActPayload, Playback } from '@proj-airi/pipelines-audio'
 import { presenceBubbleIdle, presenceBubbleThinking } from '@proj-airi/stage-shared'
+import { BEAT_SYNC_DANCE_BASE_BPM, getBeatSyncState, listenBeatSyncStateChange, listenBeatSyncVibeSignal, MAX_BEAT_SYNC_DANCE_SPEED, MIN_BEAT_SYNC_DANCE_SPEED } from '@proj-airi/stage-shared/beat-sync'
+import { selectVrmAnimationAssetId, selectVrmAnimationClipByEnergy, selectVrmAnimationEnergyTier, VRM_ANIMATION_ENERGY_INTENSE, VRM_ANIMATION_ENERGY_MEDIUM, vrmAnimationSlotFromMotion } from '@proj-airi/stage-shared/vrm-animations'
 import { createLive2D, Live2DScene, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { MMDScene } from '@proj-airi/stage-ui-mmd'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
 import { TachieScene } from '@proj-airi/stage-ui-tachie'
-import { ThreeScene } from '@proj-airi/stage-ui-three'
+import { applyVrmMeshCategoryOverrides, ThreeScene } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
 import { createQueue } from '@proj-airi/stream-kit'
 import { Callout } from '@proj-airi/ui'
-import { useBroadcastChannel, useEventListener } from '@vueuse/core'
+import { useBroadcastChannel, useEventListener, useLocalStorage } from '@vueuse/core'
 // import { createTransformers } from '@xsai-transformers/embed'
 // import embedWorkerURL from '@xsai-transformers/embed/worker?worker&url'
 // import { embed } from '@xsai/embed'
 import { storeToRefs } from 'pinia'
-import { computed, nextTick, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 
 import StageAvatarModelMissing from './stage-avatar-model-missing.vue'
 import StageRenderError from './stage-render-error.vue'
+import VrmMeshRadialMenu from './vrm-mesh-radial-menu.vue'
 
 // import { useDuckDb } from '../../composables/use-duck-db'
 import { Emotion, EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
@@ -51,6 +56,8 @@ import { useSettings } from '../../stores/settings'
 import { useSettingsStageModel } from '../../stores/settings/stage-model'
 import { useSpeechOutputControlStore } from '../../stores/speech-output-control'
 import { useVoiceStore } from '../../stores/voice'
+import { useVrmAnimationsStore } from '../../stores/vrm-animations'
+import { useVrmAttachmentsStore } from '../../stores/vrm-attachments'
 
 const props = withDefaults(defineProps<{
   cursorPosition?: { x: number, y: number }
@@ -75,6 +82,25 @@ const componentState = defineModel<'pending' | 'loading' | 'mounted'>('state', {
 // const transformersProvider = createTransformers({ embedWorkerURL })
 
 const vrmViewerRef = ref<InstanceType<typeof ThreeScene>>()
+
+/** Keeps a rejected viewer expression from becoming an unhandled promise. */
+async function setVrmExpression(expression: string, intensity = 1, holdMs = 3000) {
+  try {
+    await vrmViewerRef.value?.setExpression(expression, intensity, holdMs)
+  }
+  catch (error) {
+    console.warn(`[Stage] Failed to set VRM expression "${expression}"`, error)
+  }
+}
+
+function resetVrmExpression() {
+  try {
+    vrmViewerRef.value?.resetExpression()
+  }
+  catch (error) {
+    console.warn('[Stage] Failed to reset VRM expression', error)
+  }
+}
 const live2dSceneRef = ref<InstanceType<typeof Live2DScene>>()
 const spineSceneRef = ref<InstanceType<typeof SpineScene>>()
 const tachieSceneRef = ref<InstanceType<typeof TachieScene>>()
@@ -107,6 +133,33 @@ const {
   spineRenderScale,
 } = storeToRefs(settingsStore)
 const { mouthOpenSize, nowSpeaking } = storeToRefs(useSpeakingStore())
+/** Loop gestures currently owned by a spoken line; stopped when playback drains. */
+const activeSpeechMotion = ref<string>()
+/** A held VRM expression must return to neutral when the whole response ends. */
+const speechEmotionActive = ref(false)
+let activeDanceExpressionTier: number | undefined
+let actExpressionActive = false
+let actExpressionTimer: ReturnType<typeof setTimeout> | undefined
+let speechMotionWatchdog: ReturnType<typeof setTimeout> | undefined
+
+function clearSpeechMotionWatchdog() {
+  if (speechMotionWatchdog)
+    clearTimeout(speechMotionWatchdog)
+  speechMotionWatchdog = undefined
+}
+
+/** Releases every expression held only for the current spoken response. */
+function releaseSpeechExpression() {
+  if (!speechEmotionActive.value && !actExpressionActive)
+    return
+
+  speechEmotionActive.value = false
+  actExpressionActive = false
+  activeDanceExpressionTier = undefined
+  clearActExpressionTimer()
+  if (stageModelRenderer.value === 'vrm')
+    resetVrmExpression()
+}
 /** `voicing` of `SpeechOutputPlaybackState` in the speech bus. The voice output below keeps it. */
 const speechVoicing = shallowRef(false)
 const disposePlaybackStateHandler = defineInvokeHandler(
@@ -119,6 +172,21 @@ const disposePlaybackStateHandler = defineInvokeHandler(
 watch([nowSpeaking, speechVoicing], ([speaking, voicing]) => {
   getSpeechBusContext().emit(speechOutputPlaybackStateChangedEvent, { speaking, voicing })
 }, { immediate: true })
+// `speechVoicing` stays true through the pauses between sentences, unlike
+// `nowSpeaking`, so loops and facial expressions span the whole response.
+watch(speechVoicing, (voicing) => {
+  if (voicing)
+    return
+  releaseSpeechExpression()
+  if (stageModelRenderer.value === 'vrm')
+    applyDanceTierExpression()
+  if (!activeSpeechMotion.value)
+    return
+  clearSpeechMotionWatchdog()
+  activeSpeechMotion.value = undefined
+  if (stageModelRenderer.value === 'vrm')
+    vrmViewerRef.value?.stopGesture(450)
+})
 const { audioContext } = useAudioContext()
 const speechOutputControlStore = useSpeechOutputControlStore()
 const { speechMuted, speechVolume } = storeToRefs(speechOutputControlStore)
@@ -139,7 +207,7 @@ function onVRMInteract(target: VrmInteractionTarget) {
   if (now - lastTriggeredAt < VRM_INTERACTION_COOLDOWN_MS)
     return
   lastVrmInteractionAt.set(target, now)
-  vrmViewerRef.value?.setExpression(getVrmInteractionExpression(target), 1)
+  void setVrmExpression(getVrmInteractionExpression(target), 1)
 }
 
 const { onBeforeMessageComposed, onBeforeSend, onTokenLiteral, onTokenSpecial, onStreamEnd, onAssistantResponseEnd } = useChatStore()
@@ -229,6 +297,450 @@ function resetAssistantSpeechSurface(source: string) {
 }
 
 const { activeCardId: selectedCharacterId, activeCard, selectedAvatarModel, ready: cardsReady } = storeToRefs(useAiriCardStore())
+const vrmAnimationsStore = useVrmAnimationsStore()
+const storedVrmAnimationBindings = computed<VrmAnimationBindings>(() => {
+  const avatarModel = selectedAvatarModel.value
+  return avatarModel?.type === 'vrm' ? avatarModel.config.animations ?? {} : {}
+})
+const vrmAnimationBindings = computed<VrmAnimationBindings>(() => {
+  return vrmAnimationsStore.resolveBindings(selectedAvatarModel.value?.displayModelId, storedVrmAnimationBindings.value)
+})
+const vrmIdleAnimation = ref(animations.idleLoop.toString())
+const vrmDanceAnimation = ref<string>()
+const beatSyncActive = ref(false)
+const beatSyncEnergy = ref(0)
+const beatSyncPulseSpeed = ref(1)
+let lastVibeAt = Number.NEGATIVE_INFINITY
+let vibeWatchdog: ReturnType<typeof setInterval> | undefined
+const VIBE_TIMEOUT_MS = 2000
+let vrmIdleAnimationRequest = 0
+let vrmDanceAnimationRequest = 0
+let vrmIdleRotationSeconds = 0
+let currentVrmDanceClipId: string | undefined
+let lastVrmAnimationModelId: string | undefined
+const lastSelectedVrmAnimation = new Map<VrmAnimationSlot, string>()
+const vrmMeshNodes = ref<VrmMeshNode[]>([])
+const vrmMeshMenuOpen = ref(false)
+const vrmMeshMenuPosition = ref({ x: 0, y: 0 })
+const vrmMeshVisibilityByModel = useLocalStorage<Record<string, Record<string, boolean>>>(
+  'settings/vrm/mesh-visibility',
+  {},
+)
+const vrmMeshCategoryByModel = useLocalStorage<Record<string, Record<string, VrmMeshCategory>>>(
+  'settings/vrm/mesh-categories',
+  {},
+)
+const vrmAttachmentsStore = useVrmAttachmentsStore()
+void vrmAttachmentsStore.initialize()
+const vrmMeshModelKey = computed(() => stageModelSelected.value || 'default')
+const vrmAttachments = computed(() => vrmAttachmentsStore.resolveAttachments(vrmMeshModelKey.value))
+const vrmAttachmentMenuItems = computed(() => vrmAttachments.value.map(attachment => ({
+  id: attachment.id,
+  name: attachment.name,
+  visible: attachment.visible,
+})))
+const currentVrmMeshVisibility = computed(() => vrmMeshVisibilityByModel.value[vrmMeshModelKey.value] ?? {})
+const currentVrmMeshCategories = computed(() => vrmMeshCategoryByModel.value[vrmMeshModelKey.value] ?? {})
+
+watch([stageModelRenderer, stageModelSelected, stageModelSelectedUrl], () => {
+  vrmMeshMenuOpen.value = false
+  vrmMeshNodes.value = []
+})
+/** Short idle loops should not flip to a new clip every few seconds. */
+const VRM_IDLE_ROTATION_MIN_SECONDS = 20
+/** Face expression for each dance energy tier. ACT emotions override these. */
+const DANCE_TIER_EXPRESSIONS = [
+  { minEnergy: VRM_ANIMATION_ENERGY_INTENSE, expression: 'angry', intensity: 0.65 },
+  { minEnergy: VRM_ANIMATION_ENERGY_MEDIUM, expression: 'happy', intensity: 0.7 },
+  { minEnergy: 0, expression: 'relaxed', intensity: 0.6 },
+] as const
+const DANCE_PULSE_SMOOTHING = 0.08
+let disposeBeatSyncState: (() => void) | undefined
+let disposeBeatSyncVibe: (() => void) | undefined
+let beatSyncScopeDisposed = false
+
+const vrmBaseAnimation = computed(() => {
+  if (beatSyncActive.value && vrmDanceAnimation.value)
+    return vrmDanceAnimation.value
+  return vrmIdleAnimation.value
+})
+const vrmBaseAnimationSpeed = computed(() => {
+  if (beatSyncActive.value && vrmDanceAnimation.value)
+    return Math.min(MAX_BEAT_SYNC_DANCE_SPEED, Math.max(MIN_BEAT_SYNC_DANCE_SPEED, beatSyncPulseSpeed.value))
+  return 1
+})
+
+function pickVrmSlotAssetId(slot: VrmAnimationSlot) {
+  const assetId = selectVrmAnimationAssetId(vrmAnimationBindings.value, slot, {
+    previousId: lastSelectedVrmAnimation.get(slot),
+  })
+  if (assetId)
+    lastSelectedVrmAnimation.set(slot, assetId)
+  return assetId
+}
+
+function refreshVrmMeshNodes() {
+  const nodes = vrmViewerRef.value?.meshNodes() ?? []
+  vrmMeshNodes.value = applyVrmMeshCategoryOverrides(nodes, currentVrmMeshCategories.value)
+}
+
+function applySavedVrmMeshVisibility() {
+  vrmViewerRef.value?.applyMeshNodeVisibility(currentVrmMeshVisibility.value)
+  refreshVrmMeshNodes()
+}
+
+function saveVrmMeshVisibility(nodeId: string, visible: boolean) {
+  const modelKey = vrmMeshModelKey.value
+  const modelVisibility = {
+    ...vrmMeshVisibilityByModel.value[modelKey],
+    [nodeId]: visible,
+  }
+  vrmMeshVisibilityByModel.value = {
+    ...vrmMeshVisibilityByModel.value,
+    [modelKey]: modelVisibility,
+  }
+}
+
+function onVrmLoaded() {
+  applySavedVrmMeshVisibility()
+}
+
+function openVrmMeshMenu(event?: MouseEvent) {
+  if (stageModelRenderer.value !== 'vrm')
+    return
+
+  refreshVrmMeshNodes()
+  if (vrmMeshNodes.value.length === 0)
+    return
+
+  vrmMeshMenuPosition.value = event
+    ? { x: event.clientX, y: event.clientY }
+    : { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  vrmMeshMenuOpen.value = true
+}
+
+function onStageContextMenu(event: MouseEvent) {
+  if (stageModelRenderer.value !== 'vrm')
+    return
+  event.preventDefault()
+  // The stage owns this right-click. Stop the event so the desktop shell does
+  // not also open the app menu from the same canvas event.
+  event.stopPropagation()
+  openVrmMeshMenu(event)
+}
+
+function toggleVrmMeshNode(node: VrmMeshNode) {
+  const visible = !node.visible
+  if (!vrmViewerRef.value?.setMeshNodeVisible(node.id, visible))
+    return
+
+  vrmMeshNodes.value = vrmMeshNodes.value.map(candidate =>
+    candidate.id === node.id ? { ...candidate, visible } : candidate,
+  )
+  saveVrmMeshVisibility(node.id, visible)
+}
+
+function resetVrmMeshVisibility() {
+  vrmViewerRef.value?.resetMeshNodeVisibility()
+  refreshVrmMeshNodes()
+  const next = { ...vrmMeshVisibilityByModel.value }
+  delete next[vrmMeshModelKey.value]
+  vrmMeshVisibilityByModel.value = next
+}
+
+function toggleVrmAttachment(bindingId: string) {
+  vrmAttachmentsStore.toggleBinding(vrmMeshModelKey.value, bindingId)
+}
+
+function recategorizeVrmMeshNode(node: VrmMeshNode, category: VrmMeshCategory | null) {
+  const modelKey = vrmMeshModelKey.value
+  const nextCategories = { ...vrmMeshCategoryByModel.value[modelKey] }
+  if (category)
+    nextCategories[node.id] = category
+  else
+    delete nextCategories[node.id]
+
+  const nextByModel = { ...vrmMeshCategoryByModel.value }
+  if (Object.keys(nextCategories).length > 0)
+    nextByModel[modelKey] = nextCategories
+  else
+    delete nextByModel[modelKey]
+  vrmMeshCategoryByModel.value = nextByModel
+  refreshVrmMeshNodes()
+}
+
+function danceTierEnergy(energy: number) {
+  return selectVrmAnimationEnergyTier(vrmAnimationBindings.value, 'dance', energy)
+}
+
+function clearActExpressionTimer() {
+  if (actExpressionTimer)
+    clearTimeout(actExpressionTimer)
+  actExpressionTimer = undefined
+}
+
+function applyDanceTierExpression(tier = danceTierEnergy(beatSyncEnergy.value)) {
+  if (!beatSyncActive.value || stageModelRenderer.value !== 'vrm')
+    return
+  if (!vrmViewerRef.value)
+    return
+  if (speechEmotionActive.value || actExpressionActive)
+    return
+
+  if (tier === undefined) {
+    if (activeDanceExpressionTier !== undefined) {
+      activeDanceExpressionTier = undefined
+      void setVrmExpression('neutral', 1, 0)
+    }
+    return
+  }
+
+  if (activeDanceExpressionTier !== undefined && Math.abs(activeDanceExpressionTier - tier) < 1e-9)
+    return
+
+  const face = DANCE_TIER_EXPRESSIONS.find(entry => tier >= entry.minEnergy)
+  if (!face) {
+    activeDanceExpressionTier = undefined
+    return
+  }
+
+  activeDanceExpressionTier = tier
+  void setVrmExpression(face.expression, face.intensity, 0)
+}
+
+function pickVrmDanceAssetId() {
+  const targetTier = danceTierEnergy(beatSyncEnergy.value) ?? beatSyncEnergy.value
+  const clip = selectVrmAnimationClipByEnergy(vrmAnimationBindings.value, 'dance', targetTier)
+  if (clip) {
+    lastSelectedVrmAnimation.set('dance', clip.id)
+    return clip.id
+  }
+  return pickVrmSlotAssetId('dance')
+}
+
+async function loadVrmIdleAnimation() {
+  const request = ++vrmIdleAnimationRequest
+  const assetId = pickVrmSlotAssetId('idle')
+  const url = assetId ? await vrmAnimationsStore.getAnimationUrl(assetId) : undefined
+  if (request !== vrmIdleAnimationRequest)
+    return
+
+  if (assetId && !url)
+    console.warn('[VRM] animation for "idle" not found')
+
+  vrmIdleAnimation.value = url ?? animations.idleLoop.toString()
+  vrmIdleRotationSeconds = 0
+}
+
+async function loadVrmDanceAnimation(assetIdOverride?: string) {
+  const request = ++vrmDanceAnimationRequest
+  const assetId = assetIdOverride ?? pickVrmDanceAssetId()
+  const url = assetId ? await vrmAnimationsStore.getAnimationUrl(assetId) : undefined
+  if (request !== vrmDanceAnimationRequest)
+    return
+
+  if (assetId && !url)
+    console.warn('[VRM] animation for "dance" not found')
+
+  vrmDanceAnimation.value = url
+  currentVrmDanceClipId = url ? assetId : undefined
+  if (assetId)
+    lastSelectedVrmAnimation.set('dance', assetId)
+}
+
+function refreshVrmBaseAnimations() {
+  const modelId = selectedAvatarModel.value?.displayModelId
+  if (modelId !== lastVrmAnimationModelId) {
+    lastVrmAnimationModelId = modelId
+    vrmIdleAnimation.value = animations.idleLoop.toString()
+    vrmDanceAnimation.value = undefined
+    currentVrmDanceClipId = undefined
+    vrmIdleRotationSeconds = 0
+    lastSelectedVrmAnimation.clear()
+  }
+
+  const danceIds = new Set((vrmAnimationBindings.value.dance ?? []).map(clip => clip.id))
+  if (currentVrmDanceClipId && !danceIds.has(currentVrmDanceClipId))
+    currentVrmDanceClipId = undefined
+
+  void loadVrmIdleAnimation()
+  void loadVrmDanceAnimation()
+}
+
+watch(
+  [
+    () => selectedAvatarModel.value?.displayModelId,
+    () => JSON.stringify(vrmAnimationBindings.value.idle ?? []),
+    () => JSON.stringify(vrmAnimationBindings.value.dance ?? []),
+  ],
+  refreshVrmBaseAnimations,
+  { immediate: true },
+)
+
+watch(beatSyncActive, (active) => {
+  activeDanceExpressionTier = undefined
+  beatSyncPulseSpeed.value = 1
+  lastVibeAt = performance.now() / 1000
+  if (vibeWatchdog) {
+    clearInterval(vibeWatchdog)
+    vibeWatchdog = undefined
+  }
+  if (active) {
+    vibeWatchdog = setInterval(() => {
+      if (!beatSyncActive.value)
+        return
+      const now = performance.now() / 1000
+      if (now - lastVibeAt <= VIBE_TIMEOUT_MS / 1000)
+        return
+      beatSyncEnergy.value = 0
+      beatSyncPulseSpeed.value += (1 - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
+      applyDanceTierExpression()
+    }, 500)
+    void loadVrmDanceAnimation()
+    applyDanceTierExpression()
+  }
+  else {
+    beatSyncEnergy.value = 0
+    currentVrmDanceClipId = undefined
+    vrmIdleRotationSeconds = 0
+    void loadVrmIdleAnimation()
+    if (!speechEmotionActive.value && !actExpressionActive)
+      resetVrmExpression()
+  }
+})
+
+function onBeatSyncVibe({ energy, bpm }: { energy: number, bpm: number }) {
+  // A stopped detector can still deliver an already-queued frame. Do not let
+  // that frame seed energy or speed for the next activation.
+  if (!beatSyncActive.value)
+    return
+
+  const safeEnergy = Number.isFinite(energy) ? Math.min(1, Math.max(0, energy)) : 0
+  const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 0
+  beatSyncEnergy.value = safeEnergy
+  lastVibeAt = performance.now() / 1000
+
+  const targetSpeed = safeBpm > 0
+    ? Math.min(MAX_BEAT_SYNC_DANCE_SPEED, Math.max(MIN_BEAT_SYNC_DANCE_SPEED, safeBpm / BEAT_SYNC_DANCE_BASE_BPM))
+    : 1
+  beatSyncPulseSpeed.value += (targetSpeed - beatSyncPulseSpeed.value) * DANCE_PULSE_SMOOTHING
+
+  applyDanceTierExpression()
+}
+
+function onVrmIdleAnimationLooped({ duration }: { duration: number }) {
+  if (beatSyncActive.value && vrmDanceAnimation.value) {
+    const targetTier = danceTierEnergy(beatSyncEnergy.value)
+    const candidateId = targetTier === undefined
+      ? pickVrmSlotAssetId('dance')
+      : selectVrmAnimationClipByEnergy(vrmAnimationBindings.value, 'dance', targetTier, {
+        previousId: currentVrmDanceClipId,
+      })?.id
+
+    if (candidateId && candidateId !== currentVrmDanceClipId)
+      void loadVrmDanceAnimation(candidateId)
+
+    return
+  }
+  if ((vrmAnimationBindings.value.idle?.length ?? 0) < 2)
+    return
+  if (!Number.isFinite(duration) || duration <= 0)
+    return
+
+  vrmIdleRotationSeconds += duration
+  if (vrmIdleRotationSeconds < VRM_IDLE_ROTATION_MIN_SECONDS)
+    return
+  void loadVrmIdleAnimation()
+}
+
+async function connectBeatSync() {
+  try {
+    const state = await getBeatSyncState()
+    if (beatSyncScopeDisposed)
+      return
+
+    const disposeState = listenBeatSyncStateChange((next) => {
+      beatSyncActive.value = next.isActive
+    })
+
+    let disposeVibe: (() => void) | undefined
+    try {
+      disposeVibe = listenBeatSyncVibeSignal(onBeatSyncVibe)
+    }
+    catch (error) {
+      disposeState()
+      throw error
+    }
+
+    if (beatSyncScopeDisposed) {
+      disposeState()
+      disposeVibe?.()
+      return
+    }
+
+    disposeBeatSyncState = disposeState
+    disposeBeatSyncVibe = disposeVibe
+    beatSyncActive.value = state.isActive
+  }
+  catch (error) {
+    console.warn('[Stage] Beat Sync is unavailable', error)
+  }
+}
+
+onMounted(() => {
+  void connectBeatSync()
+})
+
+function vrmAnimationSlotForEmotion(name: Emotion): VrmAnimationSlot | undefined {
+  if (name === Emotion.Neutral)
+    return undefined
+  return name
+}
+
+async function playVrmEmotionAnimation(name: Emotion) {
+  const slot = vrmAnimationSlotForEmotion(name)
+  if (!slot)
+    return
+
+  const modelId = selectedAvatarModel.value?.displayModelId
+  const assetId = pickVrmSlotAssetId(slot)
+  if (!assetId)
+    return
+
+  const url = await vrmAnimationsStore.getAnimationUrl(assetId)
+  if (selectedAvatarModel.value?.displayModelId !== modelId)
+    return
+  if (!url) {
+    console.warn(`[VRM] animation for "${name}" not found`)
+    return
+  }
+
+  if (activeSpeechMotion.value) {
+    clearSpeechMotionWatchdog()
+    activeSpeechMotion.value = undefined
+  }
+  await vrmViewerRef.value?.playGesture(url, { fadeMs: 450 })
+}
+
+async function playVrmMotion(name: string, options: { loop?: boolean, repetitions?: number, fadeMs?: number, returnToIdle?: boolean } = {}) {
+  const modelId = selectedAvatarModel.value?.displayModelId
+  const asset = vrmAnimationsStore.findAnimationByName(name)
+  let assetId = asset?.id
+  if (!assetId) {
+    const slot = vrmAnimationSlotFromMotion(name)
+    if (slot)
+      assetId = pickVrmSlotAssetId(slot)
+  }
+  if (assetId) {
+    const url = await vrmAnimationsStore.getAnimationUrl(assetId)
+    if (selectedAvatarModel.value?.displayModelId !== modelId)
+      return false
+    if (url)
+      return await vrmViewerRef.value?.playGesture(url, options) ?? false
+  }
+  return await vrmViewerRef.value?.playGesture(name, options) ?? false
+}
+
 const { stageModelUnavailable } = storeToRefs(useSettingsStageModel())
 // Before the card store is ready, no card owns the Stage yet, so an empty Stage is not a missing model.
 // `missing`: the card has no model. `unavailable`: this device cannot load the model of the card.
@@ -261,8 +773,14 @@ const live2d = createLive2D({
     : undefined,
 })
 useSharedLive2DExpressionPreview(live2d, selectedCharacterId, () => selectedAvatarModel.value?.id)
+const voice = useVoiceStore()
 
-const emotionsQueue = createQueue<EmotionPayload>({
+interface StageEmotionPayload extends EmotionPayload {
+  /** True when this ACT already played an explicit body motion. */
+  suppressVrmBodyAnimation?: boolean
+}
+
+const emotionsQueue = createQueue<StageEmotionPayload>({
   handlers: [
     async (ctx) => {
       if (stageModelRenderer.value === 'vrm') {
@@ -271,7 +789,22 @@ const emotionsQueue = createQueue<EmotionPayload>({
         if (!value)
           return
 
-        await vrmViewerRef.value!.setExpression(value, ctx.data.intensity)
+        actExpressionActive = true
+        activeDanceExpressionTier = undefined
+        clearActExpressionTimer()
+        const holdForSpeech = speechVoicing.value || voice.activeTurns.length > 0
+        if (!holdForSpeech) {
+          actExpressionTimer = setTimeout(() => {
+            actExpressionTimer = undefined
+            actExpressionActive = false
+            applyDanceTierExpression()
+          }, 3000)
+        }
+
+        // Hold through the whole response; reset when speechVoicing drops.
+        await setVrmExpression(value, ctx.data.intensity, holdForSpeech ? 0 : 3000)
+        if (!ctx.data.suppressVrmBodyAnimation)
+          await playVrmEmotionAnimation(ctx.data.name)
       }
       else if (stageModelRenderer.value === 'live2d') {
         currentMotion.value = { group: EMOTION_EmotionMotionName_value[ctx.data.name] }
@@ -320,6 +853,7 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
   if (signal.type === 'act') {
     const act = normalizeActPayload(signal.payload)
     let explicitLive2DMotion = false
+    let explicitVrmMotion = false
 
     if (stageModelRenderer.value === 'live2d') {
       if (act.motion) {
@@ -335,6 +869,30 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
       }
     }
 
+    if (stageModelRenderer.value === 'vrm' && act.motion) {
+      clearSpeechMotionWatchdog()
+      const isTalkMotion = act.motion.startsWith('talk_')
+      // Talk gestures follow the voice. Emotional body motions play once; the
+      // face expression remains held by speechEmotionActive for the response.
+      const loop = isTalkMotion && !speechMuted.value
+      const played = await playVrmMotion(act.motion, {
+        loop,
+        repetitions: 1,
+        fadeMs: 450,
+      })
+      explicitVrmMotion = played === true
+      activeSpeechMotion.value = played && loop ? act.motion : undefined
+      if (activeSpeechMotion.value) {
+        // Safety cap only: speechVoicing releases the loop at response end.
+        speechMotionWatchdog = setTimeout(() => {
+          if (!activeSpeechMotion.value)
+            return
+          activeSpeechMotion.value = undefined
+          vrmViewerRef.value?.stopGesture()
+        }, 60000)
+      }
+    }
+
     if (act.emotion && !explicitLive2DMotion) {
       const emotion = toStageEmotionPayload(act.emotion)
       if (!emotion)
@@ -342,7 +900,12 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
 
       // eslint-disable-next-line no-console
       console.debug('emotion detected', emotion)
-      emotionsQueue.enqueue(emotion)
+      if (speechVoicing.value || voice.activeTurns.length > 0)
+        speechEmotionActive.value = true
+      emotionsQueue.enqueue({
+        ...emotion,
+        suppressVrmBodyAnimation: explicitVrmMotion,
+      })
     }
     return
   }
@@ -372,7 +935,6 @@ async function playSpecialToken(
 let disconnectLipSync: (() => void) | undefined
 let disconnectAnalyser: (() => void) | undefined
 
-const voice = useVoiceStore()
 const avatarTouch = useAvatarTouchStore()
 // A burst of touches on the avatar becomes one notification for the character.
 // The avatar already plays its own reaction, so a skipped notification still shows the touch.
@@ -396,6 +958,68 @@ watch(speechVolume, (volume) => {
 }, { immediate: true })
 const playback = new Playback(new BrowserPlayback(audioContext, { destination: speechDestination }))
 
+/**
+ * Every VoiceResponse opens its own playback group. Gate each group's first
+ * clip on the previous group draining so replies and spark notifications queue
+ * instead of talking over each other.
+ */
+function createSerializedPlayback(inner: AudioPlayback): AudioPlayback {
+  let gate: Promise<void> = Promise.resolve()
+
+  return {
+    nowMs: () => inner.nowMs(),
+    openGroup(label: string) {
+      const group = inner.openGroup(label)
+      let acquired = false
+      let released = false
+      let releaseGate: (() => void) | undefined
+
+      const release = () => {
+        if (released)
+          return
+        released = true
+        releaseGate?.()
+      }
+
+      return {
+        id: group.id,
+        label: group.label,
+        async enqueue(clip: PlaybackClip) {
+          if (!acquired && !released) {
+            acquired = true
+            const previous = gate
+            gate = new Promise<void>((resolve) => {
+              releaseGate = resolve
+            })
+            await previous
+          }
+          return group.enqueue(clip)
+        },
+        async finish() {
+          try {
+            return await group.finish()
+          }
+          finally {
+            release()
+          }
+        },
+        async stop(options: { fadeMs: number }) {
+          try {
+            return await group.stop(options)
+          }
+          finally {
+            release()
+          }
+        },
+      }
+    },
+  }
+}
+
+const serializedPlayback = createSerializedPlayback(playback)
+const pendingSpecials = new Map<string, string[]>()
+const startedSpeechTurns = new Set<string>()
+
 function resetSpeakingState() {
   nowSpeaking.value = false
   mouthOpenSize.value = 0
@@ -404,8 +1028,19 @@ function resetSpeakingState() {
 // A response leaves the active turns after its playback drains, or at once
 // when it is canceled or interrupted.
 watch(() => voice.activeTurns, (turns) => {
-  if (turns.length === 0)
+  if (turns.length === 0) {
     speechVoicing.value = false
+    // A cancelled or failed turn can skip its playback-end callback. Reset
+    // the whole speech state so a stale count cannot leave the mouth open
+    // or keep a looping emotion gesture alive.
+    playingCount = 0
+    pendingSpecials.clear()
+    startedSpeechTurns.clear()
+    releaseSpeechExpression()
+    resetSpeakingState()
+    if (stageModelRenderer.value === 'vrm')
+      applyDanceTierExpression()
+  }
 })
 
 const cards = useAiriCardStore()
@@ -426,13 +1061,31 @@ watch([() => shownChatSpeech.value?.provider, () => shownChatSpeech.value?.model
 
 const disconnectVoiceOutput = voice.connectOutput((turn) => {
   const output = {
-    playback,
-    onSpecial: (special: string) => void playSpecialToken(special, { turnId: turn.turnId }),
+    playback: serializedPlayback,
+    onSpecial: (special: string) => {
+      // ACT tokens stream with the text, well before TTS synthesis finishes.
+      // Hold them until this turn's first audio starts so the gesture and the
+      // voice begin together. Later tokens follow the next sentence.
+      if (startedSpeechTurns.has(turn.turnId)) {
+        void playSpecialToken(special, { turnId: turn.turnId })
+        return
+      }
+      const pending = pendingSpecials.get(turn.turnId) ?? []
+      pending.push(special)
+      pendingSpecials.set(turn.turnId, pending)
+    },
     onPlaybackStart: ({ text }: { text: string }) => {
       playingCount += 1
       nowSpeaking.value = true
       speechVoicing.value = true
       assistantCaption.value += ` ${text}`
+      startedSpeechTurns.add(turn.turnId)
+      const pending = pendingSpecials.get(turn.turnId)
+      if (pending?.length) {
+        pendingSpecials.delete(turn.turnId)
+        for (const special of pending)
+          void playSpecialToken(special, { turnId: turn.turnId })
+      }
       try {
         postCaption({ type: 'caption-assistant', text })
         postPresent({ type: 'assistant-append', text })
@@ -442,9 +1095,12 @@ const disconnectVoiceOutput = voice.connectOutput((turn) => {
       }
     },
     onPlaybackEnd: () => {
-      playingCount -= 1
-      if (playingCount === 0)
+      playingCount = Math.max(0, playingCount - 1)
+      if (playingCount === 0) {
+        pendingSpecials.delete(turn.turnId)
+        startedSpeechTurns.delete(turn.turnId)
         resetSpeakingState()
+      }
     },
   }
   if (speechMuted.value)
@@ -662,6 +1318,15 @@ async function captureCharacterFrame() {
 }
 
 onUnmounted(() => {
+  beatSyncScopeDisposed = true
+  if (vibeWatchdog) {
+    clearInterval(vibeWatchdog)
+    vibeWatchdog = undefined
+  }
+  clearSpeechMotionWatchdog()
+  clearActExpressionTimer()
+  pendingSpecials.clear()
+  startedSpeechTurns.clear()
   avatarTouchAggregator.dispose()
   live2d.dispose()
   disposePlaybackStateHandler()
@@ -669,6 +1334,8 @@ onUnmounted(() => {
   disconnectAnalyser?.()
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())
+  disposeBeatSyncState?.()
+  disposeBeatSyncVibe?.()
   disconnectVoiceOutput()
   releaseSpeechPlayerRole()
   speechDestination.disconnect()
@@ -682,16 +1349,30 @@ defineExpose({
    */
   captureFrame: captureCharacterFrame,
   readRenderTargetRegionAtClientPoint,
-  setExpression: async (expression: string, intensity = 1) => {
+  setExpression: async (expression: string, intensity = 1, holdMs = 3000) => {
+    if (stageModelRenderer.value === 'vrm')
+      await setVrmExpression(expression, intensity, holdMs)
+  },
+  resetExpression: () => {
+    if (stageModelRenderer.value === 'vrm')
+      resetVrmExpression()
+  },
+  playGesture: async (name: string, options?: { loop?: boolean, fadeMs?: number, returnToIdle?: boolean }) => {
     if (stageModelRenderer.value === 'vrm') {
-      await vrmViewerRef.value?.setExpression(expression, intensity)
+      return vrmViewerRef.value?.playGesture(name, options)
+    }
+    return false
+  },
+  stopGesture: (fadeMs?: number) => {
+    if (stageModelRenderer.value === 'vrm') {
+      vrmViewerRef.value?.stopGesture(fadeMs)
     }
   },
 })
 </script>
 
 <template>
-  <div relative h-full w-full>
+  <div relative h-full w-full @contextmenu="onStageContextMenu">
     <div relative h-full w-full>
       <Live2DScene
         v-if="stageModelRenderer === 'live2d' && showStage"
@@ -726,15 +1407,19 @@ defineExpose({
         :model-id="stageModelSelected"
         :model-src="stageModelSelectedUrl"
         :cursor-position="cursorPosition"
-        :idle-animation="animations.idleLoop.toString()"
+        :idle-animation="vrmBaseAnimation"
+        :idle-animation-speed="vrmBaseAnimationSpeed"
         :paused="paused"
         :show-axes="stageViewControlsEnabled"
         :enable-orbit-controls="props.enableOrbitControls"
         :audio-context="audioContext"
         :connect-speech="connectSpeech"
         :speech-active="nowSpeaking"
+        :attachments="vrmAttachments"
         @error="reportStageRenderError"
+        @idle-animation-looped="onVrmIdleAnimationLooped"
         @vrm-interact="onVRMInteract"
+        @vrm-loaded="onVrmLoaded"
       />
       <SpineScene
         v-if="stageModelRenderer === 'spine' && showStage"
@@ -818,5 +1503,27 @@ defineExpose({
         @retry="retryStageRenderer"
       />
     </div>
+    <button
+      v-if="stageModelRenderer === 'vrm' && vrmMeshNodes.length > 0"
+      type="button"
+      class="absolute right-2 top-2 z-20 size-8 flex items-center justify-center border border-neutral-200/80 rounded-full bg-white/80 text-neutral-600 shadow-md backdrop-blur-md dark:border-neutral-700/80 dark:bg-neutral-900/80 hover:bg-white dark:text-neutral-300 dark:hover:bg-neutral-900"
+      title="Model parts"
+      aria-label="Model parts"
+      @click.stop="openVrmMeshMenu()"
+    >
+      <span class="i-solar:eye-bold-duotone text-base" aria-hidden="true" />
+    </button>
+    <VrmMeshRadialMenu
+      :open="vrmMeshMenuOpen"
+      :x="vrmMeshMenuPosition.x"
+      :y="vrmMeshMenuPosition.y"
+      :nodes="vrmMeshNodes"
+      :attachments="vrmAttachmentMenuItems"
+      @close="vrmMeshMenuOpen = false"
+      @toggle="toggleVrmMeshNode"
+      @toggle-attachment="toggleVrmAttachment"
+      @reset="resetVrmMeshVisibility"
+      @recategorize="recategorizeVrmMeshNode"
+    />
   </div>
 </template>

@@ -162,7 +162,6 @@ catalog:
   '@moeru/three-mmd': 0.2.0-beta.2
   '@moeru/three-mmd-physics-ammo': 0.2.0-beta.2
   '@napi-rs/image': ^1.14.0
-  '@nekopaw/tempora': 0.4.0-alpha.1
   '@node-macos-disclaim/darwin-arm64': ^0.0.1
   '@node-macos-disclaim/darwin-x64': ^0.0.1
   '@openpanel/sdk': 1.3.1

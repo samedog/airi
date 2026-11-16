@@ -9,6 +9,7 @@
 
 import type { VRM } from '@pixiv/three-vrm'
 import type { PresenceBubblePalette, PresenceBubbleState } from '@proj-airi/stage-shared'
+import type { VrmResolvedAttachment } from '@proj-airi/stage-shared/vrm-attachments'
 import type { TresContext } from '@tresjs/core'
 import type { DirectionalLight, SphericalHarmonics3, Texture, WebGLRenderer, WebGLRenderTarget } from 'three'
 
@@ -68,6 +69,8 @@ const props = withDefaults(defineProps<{
   connectSpeech?: (node: AudioNode) => () => void
   /** Whether speech is currently audible. Required when `connectSpeech` is set. */
   speechActive?: boolean
+  /** Resolved attachment bindings for the active model. */
+  attachments?: VrmResolvedAttachment[]
   cursorPosition?: { x: number, y: number }
   /**
    * Scene painted behind the model, inside this canvas rather than under it, so one
@@ -95,12 +98,14 @@ const props = withDefaults(defineProps<{
   enableOrbitControls?: boolean
   showAxes?: boolean
   idleAnimation?: string
+  idleAnimationSpeed?: number
   paused?: boolean
 }>(), {
   presence: () => presenceBubbleIdle,
   enableOrbitControls: true,
   showAxes: false,
   idleAnimation: new URL('../assets/vrm/animations/idle_loop.vrma', import.meta.url).href,
+  idleAnimationSpeed: 1,
   paused: false,
 })
 
@@ -108,6 +113,8 @@ const emit = defineEmits<{
   (e: 'loadModelProgress', value: number): void
   (e: 'error', value: unknown): void
   (e: 'vrmInteract', value: VrmInteractionTarget): void
+  (e: 'vrmLoaded', value: string): void
+  (e: 'idleAnimationLooped', value: { duration: number }): void
 }>()
 /**
  * Colours for the presence bubble, read from elements carrying the project's own
@@ -678,6 +685,7 @@ function onVRMModelLoaded(value: string) {
   pendingCommittedModelRevision.value = bindingRevision.value
   loadingModelIdentity.value = undefined
   modelPhase.value = 'ready'
+  emit('vrmLoaded', value)
   void completeSceneBinding(bindingRevision.value)
 }
 function onVRMModelError(error: unknown) {
@@ -984,9 +992,19 @@ watch(directionalLightRotation, (newRotation) => {
 }, { deep: true })
 
 defineExpose({
-  setExpression: (expression: string, intensity = 1) => {
-    modelRef.value?.setExpression(expression, intensity)
+  setExpression: (expression: string, intensity = 1, holdMs = 3000) => {
+    modelRef.value?.setExpression(expression, intensity, holdMs)
   },
+  resetExpression: () => {
+    modelRef.value?.resetExpression()
+  },
+  playGesture: (name: string, options?: { loop?: boolean, repetitions?: number, fadeMs?: number, returnToIdle?: boolean }) => {
+    return modelRef.value?.playGesture(name, options)
+  },
+  stopGesture: (fadeMs?: number) => {
+    modelRef.value?.stopGesture(fadeMs)
+  },
+  gestureNames: () => modelRef.value?.gestureNames() ?? [],
   // NOTICE: External runtime hooks are intentionally separate from internal VRM model hooks.
   // This public frame hook is reserved for live pose/tracking input and is forwarded to VRMModel
   // without exposing the internal model/material lifecycle hook pipeline.
@@ -1000,6 +1018,10 @@ defineExpose({
   camera: () => camera.value,
   renderer: () => tresContextRef.value?.renderer.instance,
   scene: () => modelRef.value?.scene,
+  meshNodes: () => modelRef.value?.meshNodes() ?? [],
+  setMeshNodeVisible: (id: string, visible: boolean) => modelRef.value?.setMeshNodeVisible(id, visible) ?? false,
+  applyMeshNodeVisibility: (visibility: Record<string, boolean>) => modelRef.value?.applyMeshNodeVisibility(visibility),
+  resetMeshNodeVisibility: () => modelRef.value?.resetMeshNodeVisibility(),
   readRenderTargetRegionAtClientPoint,
   captureFrame: async () => {
     if (!tresContextRef.value)
@@ -1082,11 +1104,13 @@ defineExpose({
         :audio-context="props.audioContext"
         :connect-speech="props.connectSpeech"
         :speech-active="props.speechActive"
+        :attachments="props.attachments"
         :cursor-position="props.cursorPosition"
         :last-committed-model-id="lastCommittedModelId"
         :model-id="requestedModelIdentity?.modelId ?? props.modelId"
         :model-src="requestedModelIdentity?.modelSrc"
         :idle-animation="props.idleAnimation"
+        :idle-animation-speed="props.idleAnimationSpeed"
         :paused="props.paused"
         :env-select="envSelect"
         :sky-box-intensity="skyBoxIntensity"
@@ -1103,6 +1127,7 @@ defineExpose({
         @scene-bootstrap="onVRMSceneBootstrap"
         @error="onVRMModelError"
         @loaded="onVRMModelLoaded"
+        @idle-animation-looped="(value: { duration: number }) => emit('idleAnimationLooped', value)"
       >
         <PresenceBubble
           :head-anchor="() => modelRef?.headAnchor()"

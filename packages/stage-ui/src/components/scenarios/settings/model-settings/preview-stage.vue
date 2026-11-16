@@ -16,6 +16,7 @@ import { useLive2DStageMotionMagic } from '../../../../features/motions/live2d/u
 import { useSharedLive2DExpressionPreview } from '../../../../stores/live2d'
 import { useAiriCardStore } from '../../../../stores/modules/airi-card'
 import { useSettings } from '../../../../stores/settings'
+import { useVrmAttachmentsStore } from '../../../../stores/vrm-attachments'
 import {
   createEmptyModelSettingsRuntimeSnapshot,
   resolveComponentStateToRuntimePhase,
@@ -66,6 +67,9 @@ const {
 } = storeToRefs(settingsStore)
 const { sceneMutationLocked, scenePhase } = storeToRefs(modelStore)
 const { live2dMotionDriver } = storeToRefs(useSettingsLive2d())
+const vrmAttachmentsStore = useVrmAttachmentsStore()
+void vrmAttachmentsStore.initialize()
+const vrmAttachments = computed(() => vrmAttachmentsStore.resolveAttachments(stageModelSelected.value || 'default'))
 
 // The web settings route unmounts the main stage, so the preview runs its own driver.
 useLive2DStageMotionMagic({
@@ -232,7 +236,13 @@ const cursorPosition = computed(() => ({
   </template>
   <template v-if="stageModelRenderer === 'vrm'">
     <div :class="vrmSceneClassList">
-      <ThreeScene ref="vrmSceneRef" :cursor-position="cursorPosition" :model-id="stageModelSelected" :model-src="stageModelSelectedUrl" />
+      <ThreeScene
+        ref="vrmSceneRef"
+        :cursor-position="cursorPosition"
+        :model-id="stageModelSelected"
+        :model-src="stageModelSelectedUrl"
+        :attachments="vrmAttachments"
+      />
     </div>
   </template>
   <template v-if="stageModelRenderer === 'spine'">

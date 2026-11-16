@@ -1,0 +1,232 @@
+import type { VrmAnimationAsset, VrmAnimationBindings, VrmAnimationBindingsInput } from '@proj-airi/stage-shared/vrm-animations'
+
+import { defineInvoke } from '@moeru/eventa'
+import { createContext } from '@moeru/eventa/adapters/electron/renderer'
+import { errorMessageFrom } from '@moeru/std'
+import { isElectronWindow } from '@proj-airi/stage-shared'
+import { useLocalStorageManualReset } from '@proj-airi/stage-shared/composables'
+import {
+  electronVrmAnimationImport,
+  electronVrmAnimationRead,
+  electronVrmAnimationRemove,
+  electronVrmAnimationReveal,
+  electronVrmAnimationsList,
+  normalizeVrmAnimationBindings,
+  removeVrmAnimationAssetFromBindings,
+} from '@proj-airi/stage-shared/vrm-animations'
+import { useBroadcastChannel } from '@vueuse/core'
+import { defineStore } from 'pinia'
+import { computed, onScopeDispose, ref, watch } from 'vue'
+
+import { useVrmAnimationCatalogStore } from './vrm-animation-catalog'
+
+interface VrmAnimationBindingBroadcast {
+  avatarModelId: string
+  animations: VrmAnimationBindingsInput
+}
+
+const BINDING_CHANNEL = 'airi-vrm-animation-bindings'
+
+/**
+ * Reads the desktop VRM animation library from the main process.
+ *
+ * The settings window imports files into `userData/vrm-animations`, while the
+ * stage window reads them back by ID. Both windows create their own store and
+ * eventa context because Electron runs them in separate renderers.
+ */
+export const useVrmAnimationsStore = defineStore('vrm-animations', () => {
+  const assets = ref<VrmAnimationAsset[]>([])
+  const loading = ref(false)
+  const error = ref<string>()
+  const catalogStore = useVrmAnimationCatalogStore()
+  const bindingsByModel = useLocalStorageManualReset<Record<string, VrmAnimationBindingsInput>>(
+    'settings/vrm/animation-bindings',
+    () => ({}),
+  )
+  const objectUrls = new Map<string, string>()
+  const objectUrlRequests = new Map<string, Promise<string | undefined>>()
+  let context: ReturnType<typeof createContext> | undefined
+  const { data: incomingBindings, post: postBindings } = useBroadcastChannel<VrmAnimationBindingBroadcast, VrmAnimationBindingBroadcast>({
+    name: BINDING_CHANNEL,
+  })
+
+  watch(incomingBindings, (payload) => {
+    if (payload) {
+      bindingsByModel.value = {
+        ...bindingsByModel.value,
+        [payload.avatarModelId]: normalizeVrmAnimationBindings(payload.animations),
+      }
+    }
+  })
+
+  const supported = computed(() => typeof window !== 'undefined' && isElectronWindow(window))
+
+  function getContext() {
+    if (typeof window === 'undefined' || !isElectronWindow(window))
+      throw new Error('VRM animation imports require the desktop app.')
+    context ??= createContext(window.electron.ipcRenderer)
+    return context.context
+  }
+
+  async function refresh() {
+    if (!supported.value) {
+      assets.value = []
+      return
+    }
+
+    loading.value = true
+    error.value = undefined
+    try {
+      assets.value = await defineInvoke(getContext(), electronVrmAnimationsList)()
+      catalogStore.replace(assets.value)
+    }
+    catch (cause) {
+      error.value = errorMessageFrom(cause)
+    }
+    finally {
+      loading.value = false
+    }
+  }
+
+  async function importAnimation(file: File) {
+    if (!file.name.toLowerCase().endsWith('.vrma'))
+      throw new Error('Select a .vrma file.')
+    if (!supported.value)
+      throw new Error('VRM animation imports require the desktop app.')
+
+    const asset = await defineInvoke(getContext(), electronVrmAnimationImport)({
+      name: file.name,
+      data: await file.arrayBuffer(),
+    })
+    assets.value = [...assets.value, asset].sort((a, b) => a.name.localeCompare(b.name))
+    catalogStore.add(asset)
+    return asset
+  }
+
+  async function removeAnimation(id: string) {
+    if (!supported.value)
+      return
+    await defineInvoke(getContext(), electronVrmAnimationRemove)(id)
+    const url = objectUrls.get(id)
+    if (url) {
+      URL.revokeObjectURL(url)
+      objectUrls.delete(id)
+    }
+    assets.value = assets.value.filter(asset => asset.id !== id)
+    catalogStore.remove(id)
+
+    let bindingsChanged = false
+    const nextBindings = { ...bindingsByModel.value }
+    const changedModels: Array<{ avatarModelId: string, animations: VrmAnimationBindings }> = []
+    for (const [modelId, bindings] of Object.entries(bindingsByModel.value)) {
+      const result = removeVrmAnimationAssetFromBindings(bindings, id)
+      if (!result.changed)
+        continue
+      bindingsChanged = true
+      nextBindings[modelId] = result.bindings
+      changedModels.push({ avatarModelId: modelId, animations: result.bindings })
+    }
+    if (bindingsChanged) {
+      bindingsByModel.value = nextBindings
+      // Publish only after the local map is committed, so every window sees
+      // the same final binding snapshot.
+      for (const payload of changedModels)
+        postBindings(payload)
+    }
+  }
+
+  async function getAnimationUrl(id: string): Promise<string | undefined> {
+    if (!id || !supported.value)
+      return undefined
+
+    const cached = objectUrls.get(id)
+    if (cached)
+      return cached
+
+    const pending = objectUrlRequests.get(id)
+    if (pending)
+      return pending
+
+    const request = (async () => {
+      try {
+        const data = await defineInvoke(getContext(), electronVrmAnimationRead)(id)
+        const url = URL.createObjectURL(new Blob([data], { type: 'model/gltf-binary' }))
+        objectUrls.set(id, url)
+        return url
+      }
+      catch (cause) {
+        console.warn(`[VRM] animation ${id} could not be read`, errorMessageFrom(cause))
+        return undefined
+      }
+      finally {
+        objectUrlRequests.delete(id)
+      }
+    })()
+
+    objectUrlRequests.set(id, request)
+    return request
+  }
+
+  async function reveal() {
+    if (!supported.value)
+      return
+    await defineInvoke(getContext(), electronVrmAnimationReveal)()
+  }
+
+  /** Resolves an ACT motion name to a user-local library asset. */
+  function findAnimationByName(name: string) {
+    const normalized = name.trim().toLowerCase()
+    if (!normalized)
+      return undefined
+    const source = assets.value.length > 0 ? assets.value : catalogStore.assets
+    return source.find(asset => asset.name.trim().toLowerCase() === normalized)
+  }
+
+  /** Updates every window and persists the binding for this display model. */
+  function setBindings(modelId: string, animations: VrmAnimationBindings) {
+    const normalized = normalizeVrmAnimationBindings(animations)
+    bindingsByModel.value = { ...bindingsByModel.value, [modelId]: normalized }
+    postBindings({ avatarModelId: modelId, animations: normalized })
+  }
+
+  /** Prefers the live settings window value, then the value stored on the card. */
+  function resolveBindings(modelId: string | undefined, fallback: VrmAnimationBindingsInput): VrmAnimationBindings {
+    const stored = modelId ? bindingsByModel.value[modelId] : undefined
+    const normalizedStored = normalizeVrmAnimationBindings(stored)
+    if (Object.keys(normalizedStored).length > 0)
+      return normalizedStored
+    return normalizeVrmAnimationBindings(fallback)
+  }
+
+  function reset() {
+    for (const url of objectUrls.values())
+      URL.revokeObjectURL(url)
+    objectUrls.clear()
+    objectUrlRequests.clear()
+    assets.value = []
+    bindingsByModel.reset()
+    catalogStore.reset()
+    error.value = undefined
+  }
+
+  onScopeDispose(() => {
+    context?.dispose()
+    context = undefined
+  })
+
+  return {
+    assets,
+    loading,
+    error,
+    supported,
+    refresh,
+    importAnimation,
+    removeAnimation,
+    getAnimationUrl,
+    reveal,
+    findAnimationByName,
+    setBindings,
+    resolveBindings,
+    reset,
+  }
+})
