@@ -169,8 +169,11 @@ restore Tempora or reintroduce that API.
   - stops a gesture before stashing a mixer;
   - restores idle loop/clamp state when a cached action is reused;
   - logs a missing animation and returns instead of throwing.
-- `Stage.vue` serializes voice playback groups so replies and notifications wait for the current
-  group to finish or stop instead of talking over each other.
+- `packages/stage-ui/src/libs/speech/serialized-playback.ts` serializes voice playback groups
+  so replies, sparks, and notifications wait for the current group to finish or stop instead of
+  talking over each other. It preserves the optional `output` and `connect` fields, and
+  `serialized-playback.test.ts` covers finish release, stop release, and clip order. `Stage.vue`
+  uses it for voice output. This is the same fix that upstream PR #3369 proposes.
 - Speech-held VRM expressions follow the active voice turn and release when the response drains.
   This prevents a stale expression from resurfacing after the window regains focus.
 

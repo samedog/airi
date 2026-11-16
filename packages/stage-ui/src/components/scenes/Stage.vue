@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
-import type { AudioPlayback, PlaybackClip } from '@proj-airi/pipelines-audio'
 import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-shared'
 import type { VrmAnimationBindings, VrmAnimationSlot } from '@proj-airi/stage-shared/vrm-animations'
 import type { VrmInteractionTarget, VrmMeshCategory, VrmMeshNode } from '@proj-airi/stage-ui-three'
@@ -41,6 +40,7 @@ import { Emotion, EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_val
 import { useLive2DStageMotionMagic } from '../../features/motions/live2d/use-live2d-stage-motion-magic'
 import { createAvatarTouchAggregator } from '../../libs/avatar-touch/notify'
 import { syncedRoles, usePiniaSynced } from '../../libs/pinia/synced-context'
+import { createSerializedPlayback } from '../../libs/speech/serialized-playback'
 import { getSpeechBusContext, speechOutputGetPlaybackState, speechOutputPlaybackStateChangedEvent } from '../../services/speech/bus'
 import { useLlmStreamingControlStore } from '../../stores/ai/chat-llm/streaming-control'
 import { useAudioContext, useSpeakingStore } from '../../stores/audio'
@@ -957,64 +957,6 @@ watch(speechVolume, (volume) => {
   speechDestination.gain.setTargetAtTime(volume, audioContext.currentTime, 0.05)
 }, { immediate: true })
 const playback = new Playback(new BrowserPlayback(audioContext, { destination: speechDestination }))
-
-/**
- * Every VoiceResponse opens its own playback group. Gate each group's first
- * clip on the previous group draining so replies and spark notifications queue
- * instead of talking over each other.
- */
-function createSerializedPlayback(inner: AudioPlayback): AudioPlayback {
-  let gate: Promise<void> = Promise.resolve()
-
-  return {
-    nowMs: () => inner.nowMs(),
-    openGroup(label: string) {
-      const group = inner.openGroup(label)
-      let acquired = false
-      let released = false
-      let releaseGate: (() => void) | undefined
-
-      const release = () => {
-        if (released)
-          return
-        released = true
-        releaseGate?.()
-      }
-
-      return {
-        id: group.id,
-        label: group.label,
-        async enqueue(clip: PlaybackClip) {
-          if (!acquired && !released) {
-            acquired = true
-            const previous = gate
-            gate = new Promise<void>((resolve) => {
-              releaseGate = resolve
-            })
-            await previous
-          }
-          return group.enqueue(clip)
-        },
-        async finish() {
-          try {
-            return await group.finish()
-          }
-          finally {
-            release()
-          }
-        },
-        async stop(options: { fadeMs: number }) {
-          try {
-            return await group.stop(options)
-          }
-          finally {
-            release()
-          }
-        },
-      }
-    },
-  }
-}
 
 const serializedPlayback = createSerializedPlayback(playback)
 const pendingSpecials = new Map<string, string[]>()
