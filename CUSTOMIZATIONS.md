@@ -11,9 +11,9 @@ artifacts, not the source of truth.
 - Original custom line base: `335f6cac7` (`v0.13.1` plus three upstream commits)
 - Current custom branch: `main`
 - Electron: upstream `43.8.4`
-- Last upstream sync: PR #3 (`samedog/sync/upstream-2026-11-14`) at `26b691f57`
-- Upstream merge target: `upstream/main` at `26b691f57` (2026-11-14)
-- Current patch baseline: `upstream/main` at `26b691f57`
+- Last upstream sync: PR #4 (`samedog/sync/upstream-2026-11-16`) at `36113ac5c`
+- Upstream merge target: `upstream/main` at `36113ac5c` (2026-11-16)
+- Current patch baseline: `upstream/main` at `36113ac5c`
 - Current patch artifact: `patches/airi-custom-upstream-main.patch`
 
 The `v0.13.1` and `v0.14.1` tags are version references only. They are not patch bases.
@@ -124,7 +124,10 @@ actually removes the other platform builds.
   use it; it is no longer part of the Beat Sync page.
 
 Reason: Beat Sync needs a Linux desktop audio path, a selectable source, and a speed signal that
-follows the musical tempo without the Tempora worklet dependency.
+follows the musical tempo without the Tempora worklet dependency. Tempora was CPU-expensive and
+inaccurate on compressed music, so this local onset/tempo analyser, its `vibe` event, and the
+removal of the FFT-byte accessor and spectrum polling API are fork contract. A sync must not
+restore Tempora or reintroduce that API.
 
 ### VRM animation library and speech playback
 
