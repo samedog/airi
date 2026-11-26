@@ -1,6 +1,10 @@
-import { useLocalStorage } from '@vueuse/core'
+import type { KaraokePlaybackCommand, KaraokePlaybackState } from '@proj-airi/stage-shared/karaoke'
+
+import { errorMessageFrom } from '@moeru/std'
+import { KARAOKE_PLAYBACK_COMMAND_CHANNEL, KARAOKE_PLAYBACK_STATE_CHANNEL } from '@proj-airi/stage-shared/karaoke'
+import { useBroadcastChannel, useLocalStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { ref, shallowRef, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 
 import { useAudioContext } from './audio'
 import { useKaraokeStore } from './karaoke'
@@ -29,6 +33,42 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
   let startedAt = 0
   let frame = 0
   let stopping = false
+
+  /**
+   * True in the window that renders the avatar.
+   *
+   * The settings window and the stage window are separate renderers with their
+   * own audio graph, so only the stage window plays. The settings window sends a
+   * command over the broadcast channel and shows the state that comes back.
+   */
+  const stageHost = ref(false)
+  const commandBus = useBroadcastChannel<KaraokePlaybackCommand, KaraokePlaybackCommand>({ name: KARAOKE_PLAYBACK_COMMAND_CHANNEL })
+  const stateBus = useBroadcastChannel<KaraokePlaybackState, KaraokePlaybackState>({ name: KARAOKE_PLAYBACK_STATE_CHANNEL })
+  let lastPublishedTick = -1
+
+  function publishState() {
+    if (!stageHost.value)
+      return
+    stateBus.post({
+      isPlaying: isPlaying.value,
+      songId: songId.value,
+      currentTime: currentTime.value,
+      duration: duration.value,
+    })
+  }
+
+  /** The playback this window shows: its own in the stage, the reported one in settings. */
+  const activeState = computed<KaraokePlaybackState>(() => {
+    if (stageHost.value) {
+      return {
+        isPlaying: isPlaying.value,
+        songId: songId.value,
+        currentTime: currentTime.value,
+        duration: duration.value,
+      }
+    }
+    return stateBus.data.value ?? { isPlaying: false, currentTime: 0, duration: 0 }
+  })
 
   function ensureMixGain(): GainNode {
     if (mixGain.value)
@@ -80,6 +120,12 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     if (!isPlaying.value)
       return
     currentTime.value = Math.min(duration.value, Math.max(0, audioContext.currentTime - startedAt))
+    // The settings window shows this progress, so publish it a few times a second.
+    const tickIndex = Math.floor(currentTime.value * 4)
+    if (tickIndex !== lastPublishedTick) {
+      lastPublishedTick = tickIndex
+      publishState()
+    }
     frame = requestAnimationFrame(tick)
   }
 
@@ -106,6 +152,7 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     isPlaying.value = false
     currentTime.value = 0
     songId.value = undefined
+    lastPublishedTick = -1
   }
 
   function startSource(buffer: AudioBuffer, destination: AudioNode, at: number) {
@@ -148,7 +195,55 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     currentTime.value = 0
     songId.value = id
     isPlaying.value = true
+    publishState()
     tick()
+  }
+
+  watch(commandBus.data, (command) => {
+    if (!stageHost.value || !command)
+      return
+    if (command.type === 'play') {
+      void play(command.songId).catch((cause) => {
+        stateBus.post({
+          isPlaying: false,
+          currentTime: 0,
+          duration: 0,
+          error: errorMessageFrom(cause) ?? 'The song could not be played.',
+        })
+      })
+      return
+    }
+    stop()
+  })
+
+  watch([isPlaying, songId, duration], publishState)
+
+  /** The avatar window calls this when it mounts. Only that window plays audio. */
+  function attachStage() {
+    stageHost.value = true
+    publishState()
+  }
+
+  function detachStage() {
+    stop()
+    stageHost.value = false
+    stateBus.post({ isPlaying: false, currentTime: 0, duration: 0 })
+  }
+
+  async function requestPlay(id: string) {
+    if (!stageHost.value) {
+      commandBus.post({ type: 'play', songId: id })
+      return
+    }
+    await play(id)
+  }
+
+  function requestStop() {
+    if (!stageHost.value) {
+      commandBus.post({ type: 'stop' })
+      return
+    }
+    stop()
   }
 
   return {
@@ -158,8 +253,13 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     songId,
     volume,
     gain: mixGain,
+    activeState,
     connectOutput,
     play,
     stop,
+    requestPlay,
+    requestStop,
+    attachStage,
+    detachStage,
   }
 })

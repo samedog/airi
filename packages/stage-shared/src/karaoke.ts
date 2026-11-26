@@ -48,6 +48,22 @@ export interface KaraokeSongAsset {
   hasStems: boolean
 }
 
+/** Commands the settings window sends to the stage window, which owns playback. */
+export const KARAOKE_PLAYBACK_COMMAND_CHANNEL = 'airi-karaoke-playback-command'
+/** Playback state that the stage window reports back to the settings window. */
+export const KARAOKE_PLAYBACK_STATE_CHANNEL = 'airi-karaoke-playback-state'
+
+export type KaraokePlaybackCommand = { type: 'play', songId: string } | { type: 'stop' }
+
+export interface KaraokePlaybackState {
+  isPlaying: boolean
+  songId?: string
+  currentTime: number
+  duration: number
+  /** Last failure reported by the stage window. */
+  error?: string
+}
+
 export const electronKaraokeSongsList = defineInvokeEventa<KaraokeSongAsset[]>(
   'eventa:invoke:electron:karaoke:songs:list',
 )

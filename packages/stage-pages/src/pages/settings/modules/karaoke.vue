@@ -6,15 +6,25 @@ import { useKaraokeStore } from '@proj-airi/stage-ui/stores/karaoke'
 import { useKaraokePlayerStore } from '@proj-airi/stage-ui/stores/karaoke-player'
 import { Alert, Button, GhostButton, SettingsCard } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 const karaoke = useKaraokeStore()
 const player = useKaraokePlayerStore()
 const { songs, loading, error, supported, selectedSongId } = storeToRefs(karaoke)
-const { isPlaying, currentTime, duration, songId } = storeToRefs(player)
+const { activeState } = storeToRefs(player)
+// The stage window plays the song and reports back. This page is the remote control.
+const isPlaying = computed(() => activeState.value.isPlaying)
+const playingSongId = computed(() => activeState.value.songId)
+const currentTime = computed(() => activeState.value.currentTime)
+const duration = computed(() => activeState.value.duration)
 const actionError = ref<string>()
+
+watch(activeState, (state) => {
+  if (state.error)
+    actionError.value = state.error
+})
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0)
@@ -33,7 +43,7 @@ async function playSong(song: KaraokeSongAsset) {
   actionError.value = undefined
   try {
     karaoke.selectSong(song.id)
-    await player.play(song.id)
+    await player.requestPlay(song.id)
   }
   catch (cause) {
     actionError.value = errorMessageFrom(cause) ?? t('settings.pages.modules.karaoke.errors.play_failed')
@@ -43,8 +53,8 @@ async function playSong(song: KaraokeSongAsset) {
 async function removeSong(song: KaraokeSongAsset) {
   actionError.value = undefined
   try {
-    if (player.songId === song.id)
-      player.stop()
+    if (playingSongId.value === song.id)
+      player.requestStop()
     await karaoke.removeSong(song.id)
   }
   catch (cause) {
@@ -78,7 +88,7 @@ onMounted(() => {
             <GhostButton :disabled="!supported" @click="karaoke.reveal()">
               {{ t('settings.pages.modules.karaoke.sections.library.actions.reveal') }}
             </GhostButton>
-            <Button v-if="isPlaying" variant="secondary" @click="player.stop()">
+            <Button v-if="isPlaying" variant="secondary" @click="player.requestStop()">
               {{ t('settings.pages.modules.karaoke.sections.library.actions.stop') }}
             </Button>
           </div>
@@ -136,9 +146,9 @@ onMounted(() => {
               </div>
               <div class="flex shrink-0 flex-row gap-2">
                 <Button
-                  v-if="isPlaying && songId === song.id"
+                  v-if="isPlaying && playingSongId === song.id"
                   variant="secondary"
-                  @click="player.stop()"
+                  @click="player.requestStop()"
                 >
                   {{ t('settings.pages.modules.karaoke.sections.library.actions.stop') }}
                 </Button>
@@ -151,7 +161,7 @@ onMounted(() => {
               </div>
             </div>
             <div
-              v-if="isPlaying && songId === song.id"
+              v-if="isPlaying && playingSongId === song.id"
               class="h-1 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
             >
               <div

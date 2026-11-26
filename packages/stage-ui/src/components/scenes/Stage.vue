@@ -691,6 +691,8 @@ async function connectBeatSync() {
 }
 
 onMounted(() => {
+  // This window renders the avatar, so it owns karaoke playback and the mouth.
+  karaokePlayer.attachStage()
   void connectBeatSync()
 })
 
@@ -1291,6 +1293,7 @@ onUnmounted(() => {
   disconnectVoiceOutput()
   releaseSpeechPlayerRole()
   speechDestination.disconnect()
+  karaokePlayer.detachStage()
 })
 
 defineExpose({
