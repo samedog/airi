@@ -864,6 +864,36 @@ pages:
   modules:
     availability:
       none: None
+    karaoke:
+      title: Karaoke
+      description: Sing along with imported song packages
+      sections:
+        library:
+          title: Song library
+          description: Packages installed into your local karaoke folder.
+          desktop_only:
+            title: Desktop only
+            description: The karaoke library reads local files, so it is available in the desktop app.
+          empty:
+            title: No songs yet
+            description: Install a song package into the karaoke folder, then refresh.
+          actions:
+            refresh: Refresh
+            reveal: Open song folder
+            play: Play
+            stop: Stop
+            remove: Remove
+        howto:
+          title: Adding a song
+          step_convert: Prepare a song package with a manifest and a mixed audio file.
+          step_render: Render the vocal with any singing synthesizer you like.
+          step_install: Copy the package folder into the karaoke folder.
+          step_refresh: Refresh this page and press Play.
+      errors:
+        load_failed: Could not read the karaoke library
+        action_failed: Something went wrong
+        play_failed: Could not play this song
+        remove_failed: Could not remove this song
     beat_sync:
       description: Vibe with beats from the audio source
       title: Beat Sync

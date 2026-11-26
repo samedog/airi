@@ -299,6 +299,35 @@ Reason: the old shortcuts collide with KDE's Deselect and common editor bindings
 - Spark memory uses the existing IndexedDB store; no new memory schema, bridge event, or `input:text`
   routing is introduced.
 
+## Karaoke song library
+
+- Fork-only. There is no upstream karaoke feature.
+- Song packages live under `userData/karaoke/songs/<id>/`: `manifest.json` plus the audio file it names, with optional `lyrics.lrc`, `visemes.json`, `vocal.wav`, and `instrumental.wav`. Folders copied in by hand are picked up like imported assets.
+- `apps/stage-tamagotchi/src/main/services/electron/karaoke.ts` owns the library and registers the `eventa:invoke:electron:karaoke:*` channels (list, read, remove, reveal). `setupKaraoke` is registered beside `setupVrmAnimations`.
+- `packages/stage-shared/src/karaoke.ts` defines the manifest and asset types, the channel contracts, manifest validation, and a WAV duration probe.
+- `packages/stage-ui/src/stores/karaoke.ts` lists, reads, and removes songs and caches object URLs. `karaoke-player.ts` decodes the mix on the shared `AudioContext`, exposes its gain node for the stage, and previews playback.
+- Settings → Modules → Karaoke (`/settings/modules/karaoke`) lists the library, plays and stops a song, opens the folder, and removes entries. The module list entry is registered in `use-modules-list.ts` and localized in `packages/i18n/src/locales/en/settings.yaml`.
+- A package is `manifest.json` plus the files it names:
+
+  ```json
+  {
+    "version": 1,
+    "title": "Song",
+    "audio": "mix.wav",
+    "durationSec": 175.3,
+    "bpm": 397.7,
+    "lyrics": "lyrics.lrc",
+    "visemes": "visemes.json",
+    "vocal": "vocal.wav",
+    "instrumental": "instrumental.wav"
+  }
+  ```
+
+  Only `title` and `audio` are required. `lyrics` is enhanced LRC (`[mm:ss.xx]` lines with `<mm:ss.xx>` word tags); `visemes` is `[{ "t": 34.82, "d": 0.3, "v": "aa" }]` with `aa`/`ee`/`ih`/`oh`/`ou`; the stems are optional. Without `durationSec`, the library reads a WAV header, so a manually copied MP3 should declare it.
+- The audio is decoded with Web Audio `decodeAudioData`, so WAV, FLAC, OGG/Opus and MP3 all work; WAV is the lossless default the local renderer produces.
+- No song files enter the repository or a release artifact; the app only reads `userData`.
+- Not yet wired: stage lip sync from the player's gain node, the lyrics overlay, and the viseme timeline driver.
+
 ## Updating to a new upstream release
 
 The patch is the source of truth. Do not merge `upstream/main` into local `main` as the sync

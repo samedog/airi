@@ -60,6 +60,7 @@ import { setupArtistryBridge } from './services/airi/widgets/artistry-bridge'
 import { setupAutoUpdater } from './services/electron/auto-updater'
 import { setupSherpawModelAssetsProtocol } from './services/electron/bundled-sherpaw-assets'
 import { setupGlobalShortcutService } from './services/electron/global-shortcut'
+import { setupKaraoke } from './services/electron/karaoke'
 import { setupPermissionHandlers } from './services/electron/media-permissions'
 import { setupSherpawModelAssets } from './services/electron/sherpaw-model-assets'
 import { setupVrmAnimations } from './services/electron/vrm-animations'
@@ -268,6 +269,7 @@ app.whenReady().then(async () => {
   setupSherpawModelAssets(createContext(ipcMain).context)
   defineInvokeHandler(createContext(ipcMain).context, electronErrorReportingSet, enabled => errorReporting.setEnabled(Boolean(enabled)))
   setupVrmAnimations(createContext(ipcMain).context)
+  setupKaraoke(createContext(ipcMain).context)
   setupPermissionHandlers(session.defaultSession, hasSelectedScreenCaptureSource)
 
   // Initialize file logger and register the hook
