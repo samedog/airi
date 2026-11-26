@@ -3,41 +3,77 @@ import { defineStore } from 'pinia'
 import { ref, shallowRef, watch } from 'vue'
 
 import { useAudioContext } from './audio'
+import { useKaraokeStore } from './karaoke'
 
 /**
  * Plays one karaoke song through the shared audio graph.
  *
- * The gain node is exposed so the stage can route the same signal into its
- * lip-sync node and analyser; the settings page can preview a song before the
- * stage wiring exists.
+ * Two outputs are kept apart: the mix goes to the speakers, while the vocal
+ * stem (or the mix when no stem exists) feeds the lip-sync taps that the stage
+ * connects. That way the mouth follows the voice rather than the drums.
  */
 export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
   const { audioContext } = useAudioContext()
+  const karaoke = useKaraokeStore()
   const volume = useLocalStorage('settings/karaoke/volume', 0.9)
   const isPlaying = ref(false)
   const currentTime = ref(0)
   const duration = ref(0)
   const songId = ref<string>()
-  const gain = shallowRef<GainNode>()
+  const mixGain = shallowRef<GainNode>()
+  const lipGain = shallowRef<GainNode>()
 
-  let source: AudioBufferSourceNode | undefined
+  const sinks = new Set<AudioNode>()
+  let mixSource: AudioBufferSourceNode | undefined
+  let lipSource: AudioBufferSourceNode | undefined
   let startedAt = 0
   let frame = 0
   let stopping = false
 
-  function ensureGain(): GainNode {
-    if (gain.value)
-      return gain.value
+  function ensureMixGain(): GainNode {
+    if (mixGain.value)
+      return mixGain.value
     const node = audioContext.createGain()
     node.gain.value = volume.value
     node.connect(audioContext.destination)
-    gain.value = node
+    mixGain.value = node
     return node
   }
 
+  function ensureLipGain(): GainNode {
+    if (lipGain.value)
+      return lipGain.value
+    const node = audioContext.createGain()
+    node.gain.value = 1
+    for (const sink of sinks)
+      node.connect(sink)
+    lipGain.value = node
+    return node
+  }
+
+  /**
+   * Connects a lip-sync node or analyser to the karaoke voice signal.
+   *
+   * Mirrors `voice.connectSpeechNode`: the returned function disconnects this
+   * sink only, and taps added before the first song are connected on start.
+   */
+  function connectOutput(node: AudioNode): () => void {
+    sinks.add(node)
+    lipGain.value?.connect(node)
+    return () => {
+      sinks.delete(node)
+      try {
+        lipGain.value?.disconnect(node)
+      }
+      catch {
+        // Already disconnected.
+      }
+    }
+  }
+
   watch(volume, (next) => {
-    if (gain.value)
-      gain.value.gain.value = next
+    if (mixGain.value)
+      mixGain.value.gain.value = next
   })
 
   function tick() {
@@ -47,42 +83,65 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     frame = requestAnimationFrame(tick)
   }
 
-  function stop() {
+  function stopSources() {
     stopping = true
-    cancelAnimationFrame(frame)
-    frame = 0
-    try {
-      source?.stop()
+    for (const source of [mixSource, lipSource]) {
+      try {
+        source?.stop()
+      }
+      catch {
+        // Already stopped.
+      }
+      source?.disconnect()
     }
-    catch {
-      // Already stopped.
-    }
-    source?.disconnect()
-    source = undefined
-    isPlaying.value = false
-    currentTime.value = 0
-    songId.value = undefined
+    mixSource = undefined
+    lipSource = undefined
     stopping = false
   }
 
-  async function play(id: string, url: string) {
-    stop()
-    await audioContext.resume()
-    const response = await fetch(url)
-    const buffer = await audioContext.decodeAudioData(await response.arrayBuffer())
+  function stop() {
+    cancelAnimationFrame(frame)
+    frame = 0
+    stopSources()
+    isPlaying.value = false
+    currentTime.value = 0
+    songId.value = undefined
+  }
 
+  function startSource(buffer: AudioBuffer, destination: AudioNode, at: number) {
     const node = audioContext.createBufferSource()
     node.buffer = buffer
-    node.connect(ensureGain())
-    node.onended = () => {
+    node.connect(destination)
+    node.start(at)
+    return node
+  }
+
+  async function decode(url: string): Promise<AudioBuffer> {
+    const response = await fetch(url)
+    return audioContext.decodeAudioData(await response.arrayBuffer())
+  }
+
+  async function play(id: string) {
+    stop()
+    const mixUrl = await karaoke.getAudioUrl(id, 'audio')
+    if (!mixUrl)
+      throw new Error('The song has no playable audio.')
+    const vocalUrl = await karaoke.getAudioUrl(id, 'vocal')
+
+    await audioContext.resume()
+    const mix = await decode(mixUrl)
+    const voice = vocalUrl ? await decode(vocalUrl) : mix
+
+    const at = audioContext.currentTime + 0.05
+    mixSource = startSource(mix, ensureMixGain(), at)
+    lipSource = startSource(voice, ensureLipGain(), at)
+    mixSource.onended = () => {
       if (!stopping)
         stop()
     }
 
-    startedAt = audioContext.currentTime + 0.05
-    node.start(startedAt)
-    source = node
-    duration.value = buffer.duration
+    startedAt = at
+    duration.value = mix.duration
     currentTime.value = 0
     songId.value = id
     isPlaying.value = true
@@ -95,7 +154,8 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     duration,
     songId,
     volume,
-    gain,
+    gain: mixGain,
+    connectOutput,
     play,
     stop,
   }

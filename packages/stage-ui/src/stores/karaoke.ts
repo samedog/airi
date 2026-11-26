@@ -1,4 +1,4 @@
-import type { KaraokeManifest, KaraokeSongAsset, KaraokeSongFile } from '@proj-airi/stage-shared/karaoke'
+import type { KaraokeManifest, KaraokeSongAsset, KaraokeSongAssetFile, KaraokeSongFile } from '@proj-airi/stage-shared/karaoke'
 
 import { defineInvoke } from '@moeru/eventa'
 import { createContext } from '@moeru/eventa/adapters/electron/renderer'
@@ -66,32 +66,32 @@ export const useKaraokeStore = defineStore('karaoke', () => {
     return defineInvoke(getContext(), electronKaraokeSongRead)({ id, file })
   }
 
-  async function getAudioUrl(id: string): Promise<string | undefined> {
+  async function getAudioUrl(id: string, file: KaraokeSongAssetFile = 'audio'): Promise<string | undefined> {
     if (!supported.value)
       return undefined
-    const cached = audioUrls.get(id)
+    const key = `${id}:${file}`
+    const cached = audioUrls.get(key)
     if (cached)
       return cached
-    const pending = urlRequests.get(id)
+    const pending = urlRequests.get(key)
     if (pending)
       return pending
 
     const request = (async () => {
       try {
-        const buffer = await read(id, 'audio')
+        const buffer = await read(id, file)
         const url = URL.createObjectURL(new Blob([buffer]))
-        audioUrls.set(id, url)
+        audioUrls.set(key, url)
         return url
       }
-      catch (cause) {
-        error.value = errorMessageFrom(cause)
+      catch {
         return undefined
       }
       finally {
-        urlRequests.delete(id)
+        urlRequests.delete(key)
       }
     })()
-    urlRequests.set(id, request)
+    urlRequests.set(key, request)
     return request
   }
 

@@ -32,11 +32,8 @@ function formatSize(bytes: number) {
 async function playSong(song: KaraokeSongAsset) {
   actionError.value = undefined
   try {
-    const url = await karaoke.getAudioUrl(song.id)
-    if (!url)
-      throw new Error(t('settings.pages.modules.karaoke.errors.play_failed'))
     karaoke.selectSong(song.id)
-    await player.play(song.id, url)
+    await player.play(song.id)
   }
   catch (cause) {
     actionError.value = errorMessageFrom(cause) ?? t('settings.pages.modules.karaoke.errors.play_failed')
