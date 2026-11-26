@@ -30,6 +30,8 @@ export interface KaraokeManifest {
   visemes?: string
   vocal?: string
   instrumental?: string
+  /** How late the vocal stem starts inside the mix, in milliseconds. */
+  vocalOffsetMs?: number
   dance?: { clip?: string, bpm?: number }
 }
 
@@ -101,6 +103,7 @@ export function isKaraokeManifest(value: unknown): value is KaraokeManifest {
     && (manifest.visemes === undefined || isPlainFileName(manifest.visemes))
     && (manifest.vocal === undefined || isPlainFileName(manifest.vocal))
     && (manifest.instrumental === undefined || isPlainFileName(manifest.instrumental))
+    && (manifest.vocalOffsetMs === undefined || (typeof manifest.vocalOffsetMs === 'number' && Number.isFinite(manifest.vocalOffsetMs) && manifest.vocalOffsetMs >= 0))
     && (manifest.durationSec === undefined || isPositiveNumber(manifest.durationSec))
     && (manifest.bpm === undefined || isPositiveNumber(manifest.bpm))
 }

@@ -323,10 +323,10 @@ Reason: the old shortcuts collide with KDE's Deselect and common editor bindings
   }
   ```
 
-  Only `title` and `audio` are required. `lyrics` is enhanced LRC (`[mm:ss.xx]` lines with `<mm:ss.xx>` word tags); `visemes` is `[{ "t": 34.82, "d": 0.3, "v": "aa" }]` with `aa`/`ee`/`ih`/`oh`/`ou`; the stems are optional. Without `durationSec`, the library reads a WAV header, so a manually copied MP3 should declare it.
+  Only `title` and `audio` are required. `lyrics` is enhanced LRC (`[mm:ss.xx]` lines with `<mm:ss.xx>` word tags); `visemes` is `[{ "t": 34.82, "d": 0.3, "v": "aa" }]` with `aa`/`ee`/`ih`/`oh`/`ou`; the stems are optional. `vocalOffsetMs` records how late the vocal stem starts inside the mix, so the player can start the lip-sync tap in sync. Without `durationSec`, the library reads a WAV header, so a manually copied MP3 should declare it.
 - The audio is decoded with Web Audio `decodeAudioData`, so WAV, FLAC, OGG/Opus and MP3 all work; WAV is the lossless default the local renderer produces.
 - No song files enter the repository or a release artifact; the app only reads `userData`.
-- Stage wiring: `Stage.vue` fans `connectSpeech` out to `voice.connectSpeechNode` and the player's `connectOutput`. The mix goes to the speakers; the vocal stem (or the mix when there is no stem) feeds the lip-sync node and analyser, so the mouth follows the voice. `speechActive` combines `nowSpeaking` and `isPlaying` for the VRM prop and the Live2D mouth loop.
+- Stage wiring: `Stage.vue` fans `connectSpeech` out to `voice.connectSpeechNode` and the player's `connectOutput`. The mix goes to the speakers; the vocal stem (or the mix when there is no stem) feeds the lip-sync node and analyser, so the mouth follows the voice. When the manifest has `vocalOffsetMs`, the vocal tap starts that late so it stays aligned with the mix. `speechActive` combines `nowSpeaking` and `isPlaying` for the VRM prop and the Live2D mouth loop.
 - Still pending: the lyrics overlay and the `visemes.json` timeline driver (the mouth currently follows the vocal audio through wLipSync).
 
 ## Updating to a new upstream release

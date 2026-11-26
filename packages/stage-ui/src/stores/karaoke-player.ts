@@ -127,6 +127,8 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     if (!mixUrl)
       throw new Error('The song has no playable audio.')
     const vocalUrl = await karaoke.getAudioUrl(id, 'vocal')
+    const manifest = await karaoke.getManifest(id)
+    const vocalOffset = Math.max(0, Number(manifest?.vocalOffsetMs ?? 0)) / 1000
 
     await audioContext.resume()
     const mix = await decode(mixUrl)
@@ -134,7 +136,8 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
 
     const at = audioContext.currentTime + 0.05
     mixSource = startSource(mix, ensureMixGain(), at)
-    lipSource = startSource(voice, ensureLipGain(), at)
+    // The vocal stem may start later than the mix; the manifest records where.
+    lipSource = startSource(voice, ensureLipGain(), vocalUrl ? at + vocalOffset : at)
     mixSource.onended = () => {
       if (!stopping)
         stop()
