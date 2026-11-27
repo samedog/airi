@@ -48,6 +48,7 @@ import { useBackgroundStore } from '../../stores/background'
 import { useAvatarTouchStore } from '../../stores/character/avatar-touch'
 import { useChatStore } from '../../stores/chat'
 import { useChatSessionStore } from '../../stores/chat/session-store'
+import { useKaraokePlayerStore } from '../../stores/karaoke-player'
 import { useSharedLive2DExpressionPreview } from '../../stores/live2d'
 import { useAiriCardStore } from '../../stores/modules/airi-card'
 import { useSpeechStore } from '../../stores/modules/speech'
@@ -133,6 +134,8 @@ const {
   spineRenderScale,
 } = storeToRefs(settingsStore)
 const { mouthOpenSize, nowSpeaking } = storeToRefs(useSpeakingStore())
+const karaokePlayer = useKaraokePlayerStore()
+const speechActive = computed(() => nowSpeaking.value || karaokePlayer.isPlaying)
 /** Loop gestures currently owned by a spoken line; stopped when playback drains. */
 const activeSpeechMotion = ref<string>()
 /** A held VRM expression must return to neutral when the whole response ends. */
@@ -688,6 +691,8 @@ async function connectBeatSync() {
 }
 
 onMounted(() => {
+  // This window renders the avatar, so it owns karaoke playback and the mouth.
+  karaokePlayer.attachStage()
   void connectBeatSync()
 })
 
@@ -951,7 +956,14 @@ const avatarTouchAggregator = createAvatarTouchAggregator({
 const speechDestination = audioContext.createGain()
 speechDestination.connect(audioContext.destination)
 /** Connects a renderer node, for example the VRM or MMD lip sync worklet, to the played speech. */
-const connectSpeech = (node: AudioNode) => voice.connectSpeechNode(node)
+function connectSpeech(node: AudioNode) {
+  const disconnectSpeech = voice.connectSpeechNode(node)
+  const disconnectKaraoke = karaokePlayer.connectOutput(node)
+  return () => {
+    disconnectSpeech()
+    disconnectKaraoke()
+  }
+}
 // setTargetAtTime smooths slider drags into the gain, so volume changes do not click.
 watch(speechVolume, (volume) => {
   speechDestination.gain.setTargetAtTime(volume, audioContext.currentTime, 0.05)
@@ -1065,7 +1077,7 @@ function startLipSyncLoop() {
     return
 
   const tick = () => {
-    if (!nowSpeaking.value || !live2dLipSync.value) {
+    if ((!nowSpeaking.value && !karaokePlayer.isPlaying) || !live2dLipSync.value) {
       mouthOpenSize.value = 0
     }
     else {
@@ -1281,6 +1293,7 @@ onUnmounted(() => {
   disconnectVoiceOutput()
   releaseSpeechPlayerRole()
   speechDestination.disconnect()
+  karaokePlayer.detachStage()
 })
 
 defineExpose({
@@ -1356,7 +1369,7 @@ defineExpose({
         :enable-orbit-controls="props.enableOrbitControls"
         :audio-context="audioContext"
         :connect-speech="connectSpeech"
-        :speech-active="nowSpeaking"
+        :speech-active="speechActive"
         :attachments="vrmAttachments"
         @error="reportStageRenderError"
         @idle-animation-looped="onVrmIdleAnimationLooped"

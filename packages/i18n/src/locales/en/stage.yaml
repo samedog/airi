@@ -188,6 +188,9 @@ chat:
     results: 'Results for "{query}" · {count}'
   tool-calls:
     running-one: 'Using {name}'
+    karaoke:
+      sing: Sing a song
+      stop: Stop the song
     failed-one: "{name} didn't finish"
     combo-running: 'Combo ×{count}'
     combo: '{count}-hit combo'

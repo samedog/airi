@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 
 import factorioIcon from '../assets/factorio-simple.png'
 
+import { useKaraokeStore } from '../stores/karaoke'
 import { useMemoryStore } from '../stores/memory'
 import { useArtistryStore } from '../stores/modules/artistry'
 import { useConsciousnessStore } from '../stores/modules/consciousness'
@@ -53,6 +54,7 @@ export function useModulesList() {
   const toolCardsStore = useToolCardsStore()
   const beatSyncState = ref<BeatSyncDetectorState>()
   const beatSyncSupported = isBeatSyncSupported()
+  const karaokeStore = useKaraokeStore()
 
   minecraftStore.initialize()
 
@@ -212,6 +214,15 @@ export function useModulesList() {
           category: 'essential',
         }]
       : []),
+    {
+      id: 'karaoke',
+      name: t('settings.pages.modules.karaoke.title'),
+      description: t('settings.pages.modules.karaoke.description'),
+      icon: 'i-solar:microphone-bold-duotone',
+      to: '/settings/modules/karaoke',
+      configured: karaokeStore.songs.length > 0,
+      category: 'essential',
+    },
   ])
 
   const categorizedModules = computed(() => {

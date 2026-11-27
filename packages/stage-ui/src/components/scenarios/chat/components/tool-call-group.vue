@@ -44,8 +44,27 @@ const emit = defineEmits<{
   (e: 'toolCallRerun', sliceIndex: number, payload: ToolCallRerunRequest): void
 }>()
 
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 const KEY = 'stage.chat.tool-calls'
+
+/**
+ * Fork: the karaoke rows name themselves from the app, not from the model.
+ *
+ * `call_summary` is model-written "in the language of your reply", so a persona
+ * that drifts labels the call in that language while the owner writes another
+ * one. These two labels are chrome, so they come from i18n with an English
+ * fallback and the model's line is ignored.
+ */
+function localCallLabel(toolName: string): string | undefined {
+  const label = toolName === 'builtIn_singSong'
+    ? { key: `${KEY}.karaoke.sing`, fallback: 'Sing a song' }
+    : toolName === 'builtIn_stopSong'
+      ? { key: `${KEY}.karaoke.stop`, fallback: 'Stop the song' }
+      : undefined
+  if (!label)
+    return undefined
+  return te(label.key, locale.value) ? t(label.key) : label.fallback
+}
 
 const llmTools = useLlmToolsStore()
 const toolCards = useToolCardsStore()
@@ -53,8 +72,9 @@ const toolCards = useToolCardsStore()
 const calls = computed(() => {
   return props.items.map((item) => {
     // The model says in the call what it does and why, with an icon for it. The row shows both, and a new card of the
-    // tool learns from the line.
-    const { text: summary, icons } = readCallSummary(item.toolCall.args)
+    // tool learns from the line. A karaoke row uses its own label instead (see `localCallLabel`).
+    const { text: modelSummary, icons } = readCallSummary(item.toolCall.args)
+    const summary = localCallLabel(item.toolCall.toolName) ?? modelSummary
     // The icon draws in the element of the tool icon, so it keeps the size and the color of that icon. The tool icon
     // shows when no candidate leads to an icon.
     const iconMask = tablerIconMask(icons)

@@ -14,9 +14,11 @@ export const CALL_ICON_ARGUMENT = 'call_icon'
 const summaryProperties = {
   [CALL_SUMMARY_ARGUMENT]: {
     type: 'string',
-    // A model that reads the line as words to the user also writes it in the reply, where speech and copy pick it up.
-    // So the description calls it a label and keeps it out of the reply.
-    description: 'Write this first. A short label shown on this call in the chat: what the call does and why, in the language of your reply. It is not part of your reply, so do not repeat it in your text. No final period.',
+    // Fork: the label follows the *owner*, spelled out. It used to say "in the
+    // language of your reply", which a persona that drifted (a German memory is
+    // enough) wrote in German while the owner wrote English. "in English"
+    // would break every other language, so the rule names the owner's message.
+    description: 'Write this first. A short label shown on this call in the chat: what the call does and why, written in the language of the owner\'s latest message — never in another language, whatever the persona or a memory uses. It is not part of your reply, so do not repeat it in your text. No final period.',
   },
   [CALL_ICON_ARGUMENT]: {
     type: 'array',

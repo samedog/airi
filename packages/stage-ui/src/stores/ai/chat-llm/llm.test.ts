@@ -38,6 +38,9 @@ vi.mock('../../../tools', () => ({
   mcp: mcpMock,
   debug: debugMock,
   createSparkCommandTool: createSparkCommandToolMock,
+  // The resolver also imports the karaoke singer tools (stage-owned playback).
+  // They stay empty here: this suite is about the resolver, not playback.
+  karaoke: vi.fn(async (): Promise<Tool[]> => []),
   // NOTICE: the resolver imports `createWebSearchTools` from the tools barrel, so
   // the mock must expose it or module loading fails with a missing-export error.
   createWebSearchTools: vi.fn(async (): Promise<Tool[]> => []),

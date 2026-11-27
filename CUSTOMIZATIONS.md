@@ -299,6 +299,53 @@ Reason: the old shortcuts collide with KDE's Deselect and common editor bindings
 - Spark memory uses the existing IndexedDB store; no new memory schema, bridge event, or `input:text`
   routing is introduced.
 
+## Karaoke song library
+
+- Fork-only. There is no upstream karaoke feature.
+- Song packages live under `userData/karaoke/songs/<id>/`: `manifest.json` plus the audio file it names, with optional `lyrics.lrc`, `visemes.json`, `vocal.wav`, and `instrumental.wav`. Folders copied in by hand are picked up like imported assets.
+- `apps/stage-tamagotchi/src/main/services/electron/karaoke.ts` owns the library and registers the `eventa:invoke:electron:karaoke:*` channels (list, read, remove, reveal). `setupKaraoke` is registered beside `setupVrmAnimations`.
+- `packages/stage-shared/src/karaoke.ts` defines the manifest and asset types, the channel contracts, manifest validation, and a WAV duration probe.
+- `packages/stage-ui/src/stores/karaoke.ts` lists, reads, and removes songs and caches object URLs. `karaoke-player.ts` decodes the mix on the shared `AudioContext`, exposes its gain node for the stage, and previews playback.
+- Settings → Modules → Karaoke (`/settings/modules/karaoke`) lists the library, plays and stops a song, opens the folder, and removes entries. The module list entry is registered in `use-modules-list.ts` and localized in `packages/i18n/src/locales/en/settings.yaml`.
+- A package is `manifest.json` plus the files it names:
+
+  ```json
+  {
+    "version": 1,
+    "title": "Song",
+    "audio": "mix.wav",
+    "durationSec": 175.3,
+    "bpm": 397.7,
+    "lyrics": "lyrics.lrc",
+    "visemes": "visemes.json",
+    "vocal": "vocal.wav",
+    "instrumental": "instrumental.wav"
+  }
+  ```
+
+  Only `title` and `audio` are required. `lyrics` is enhanced LRC (`[mm:ss.xx]` lines with `<mm:ss.xx>` word tags); `visemes` is `[{ "t": 34.82, "d": 0.3, "v": "aa" }]` with `aa`/`ee`/`ih`/`oh`/`ou`; the stems are optional. `vocalOffsetMs` records how late the vocal stem starts inside the mix, so the player can start the lip-sync tap in sync. Without `durationSec`, the library reads a WAV header, so a manually copied MP3 should declare it.
+- The audio is decoded with Web Audio `decodeAudioData`, so WAV, FLAC, OGG/Opus and MP3 all work; WAV is the lossless default the local renderer produces.
+- No song files enter the repository or a release artifact; the app only reads `userData`.
+- Stage wiring: `Stage.vue` fans `connectSpeech` out to `voice.connectSpeechNode` and the player's `connectOutput`. The mix goes to the speakers; the vocal stem (or the mix when there is no stem) feeds the lip-sync node and analyser, so the mouth follows the voice. When the manifest has `vocalOffsetMs`, the vocal tap starts that late so it stays aligned with the mix. `speechActive` combines `nowSpeaking` and `isPlaying` for the VRM prop and the Live2D mouth loop.
+- Playback belongs to the stage window. The settings window and the stage window are separate renderers with their own `AudioContext`, so only the window that mounts `Stage.vue` plays audio and drives the mouth. `Stage.vue` calls `karaokePlayer.attachStage()` on mount; `detachStage()` stops on unmount. The settings page calls `requestPlay` and `requestStop`, which post `{ type: 'play', songId }` or `{ type: 'stop' }` on the `airi-karaoke-playback-command` broadcast channel. The stage posts `airi-karaoke-playback-state` back for the progress bar and for play errors. Both channels are declared in `packages/stage-shared/src/karaoke.ts`.
+- **Singing on request.** `packages/stage-ui/src/tools/karaoke.ts` adds two model-facing tools: `builtIn_singSong` (`song` optional; picks a random installed song when the title is omitted, matched case-insensitively against the title or the folder id) and `builtIn_stopSong`. They are resolved by `resolveBuiltInTools` in `stores/ai/chat-llm/tool-resolver.ts` alongside MCP, and only when `karaokePlayer.stageHost` is true, because playback exists only in the window that mounts `Stage.vue`; settings windows, headless callers and tests get no singer tools instead of tools that cannot work. `pickSong` is exported and unit-tested (`tools/karaoke.test.ts`).
+- `composables/use-airi-runtime-prompt.ts` appends a fixed English `KARAOKE_PROMPT` telling the model to call `builtIn_singSong` instead of claiming it sings. It is deliberately outside the i18n bundle: the keys there are guarded by `te()`, so a locale missing one blanks the whole runtime prompt. The split-locale test expectations are untouched.
+- `stores/ai/chat-llm/llm.test.ts` mocks the tools barrel, so it now stubs `karaoke` as empty (`vi.fn(async () => [])`); the resolver suite itself resolves to `[]` without a stage host, so its assertions stay.
+- The library cache in `stores/karaoke.ts` merges instead of replacing. A window can list only part of the library (the stage has been observed with one song while settings lists three), and a shorter listing used to overwrite the cache, so `pickSong` with "any" returned the same song every time. `mergeCachedSongs()` unions the fresh listing with the cache by id (fresh wins), assigns the union back to `songs` so every window picks from the full library, and `removeSong` prunes the cache entry.
+- `builtIn_singSong` takes `song` as a required string with the sentinel `"any"`. An optional parameter made the model emit empty tool arguments on a generic request, and a gateway rejection of those arguments made it stop sending tools for the rest of the session. `normaliseSongRequest()` maps `any` and the empty string to "no title", which `pickSong` turns into a random pick.
+- The karaoke tools are appended to every chat request in `stores/chat.ts`, next to the wake-word and judge tools. The request's tool list came from `llmToolsStore` references plus those unconditional entries only, so a `registerKaraokeTools()` / `defaultActive` registration never reached the model.
+- `karaoke-player.ts` gates `play()` on `waitForSpeechIdle()`, which watches `speaking.nowSpeaking` with a 1.5 s grace period and a 20 s timeout, so a song starts after the spoken answer instead of over it. The `sing` command carries `songId` through the broadcast channel so a title resolved in the chat window reaches the stage.
+- Still pending: the lyrics overlay and the `visemes.json` timeline driver (the mouth currently follows the vocal audio through wLipSync).
+
+## Language of model-written text
+
+- Fork-only. Upstream lets the model answer, write memories, and label tool calls in whatever language it picks, so a persona that drifts writes memories and tool labels in that language while the app's own chrome (card, texts, sparks) is correctly localized. Observed live: an English-only conversation produced German memories and a German `Sing song` row.
+- `composables/use-airi-runtime-prompt.ts` appends `LANGUAGE_PROMPT`: answer, and write tool arguments, in the language of the owner's latest message. It is deliberately not pinned to English, so a non-English owner keeps working, and it is a plain string rather than an i18n key for the same reason as `KARAOKE_PROMPT` (a locale missing a key blanks the runtime prompt).
+- `tools/memory.ts` says the memory title and body follow the language of the owner's message.
+- `stores/ai/chat-llm/tool-call-summary.ts` asks `call_summary` for the owner's language instead of "the language of your reply", because the reply is the thing that drifts.
+- The karaoke rows do not use the model's line at all: `localCallLabel()` in `components/scenarios/chat/components/tool-call-group.vue` resolves `stage.chat.tool-calls.karaoke.sing` / `.stop` through `te()` with an English fallback, added to `packages/i18n/src/locales/en/stage.yaml`. Those labels are app chrome, so they follow the UI locale like the rest of the window. Other tools keep the model's summary unchanged.
+- These rules steer the model but cannot force it; the deterministic part is the label above. A memory already stored in the wrong language keeps biasing the persona until it is deleted or rewritten with `builtIn_rewriteMemory`.
+
 ## Updating to a new upstream release
 
 The patch is the source of truth. Do not merge `upstream/main` into local `main` as the sync

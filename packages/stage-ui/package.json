@@ -47,6 +47,7 @@
     "./models/*": "./src/models/*.ts",
     "./services/*": "./src/services/*.ts",
     "./tools/mcp": "./src/tools/mcp.ts",
+    "./tools/karaoke": "./src/tools/karaoke.ts",
     "./tools/home-assistant": "./src/tools/home-assistant.ts",
     "./tools/icons": "./src/tools/icons.ts",
     "./stores/character": "./src/stores/character/index.ts",
