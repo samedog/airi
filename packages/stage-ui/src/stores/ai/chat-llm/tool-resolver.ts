@@ -7,7 +7,7 @@ import type { DescribeToolImage } from './tool-images'
 import { createSparkCommandTool } from '@proj-airi/core-agent/agents/spark-command'
 import { uniqBy } from 'es-toolkit'
 
-import { createWebSearchTools, debug, mcp } from '../../../tools'
+import { createWebSearchTools, debug, karaoke, mcp } from '../../../tools'
 import { useModsServerChannelStore } from '../../mods/api/channel-server'
 import { useWebSearchStore } from '../../modules/web-search'
 import { withCallSummary } from './tool-call-summary'
@@ -128,6 +128,20 @@ async function resolveSparkCommandTools(sparkCommandTools?: ToolSource): Promise
   return createSparkCommandTool({ sendSparkCommand })
 }
 
+/**
+ * Built-in tools: MCP plus the ones this app owns.
+ *
+ * Karaoke playback lives in the app, not in a module server, so the singer
+ * tools are always available: "sing me a song" must work out of the box.
+ */
+async function resolveBuiltInTools(builtInTools?: ToolSource): Promise<Tool[]> {
+  if (builtInTools != null)
+    return resolveToolSource(builtInTools)
+
+  const [mcpTools, karaokeTools] = await Promise.all([mcp(), karaoke()])
+  return [...mcpTools, ...karaokeTools]
+}
+
 async function resolveWebSearchTools(webSearchTools?: ToolSource): Promise<Tool[]> {
   if (webSearchTools != null)
     return resolveToolSource(webSearchTools)
@@ -159,7 +173,7 @@ export async function resolveLlmTools(options: ResolveLlmToolsOptions = {}): Pro
     webSearchTools,
     customTools,
   ] = await Promise.all([
-    resolveToolSource(options.builtInTools ?? mcp),
+    resolveBuiltInTools(options.builtInTools),
     resolveToolSource(options.debugTools ?? debug),
     resolveSparkCommandTools(options.sparkCommandTools),
     resolveWebSearchTools(options.webSearchTools),

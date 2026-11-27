@@ -254,6 +254,8 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     volume,
     gain: mixGain,
     activeState,
+    /** True while the stage window owns playback; the singer tools need it. */
+    stageHost,
     connectOutput,
     play,
     stop,
