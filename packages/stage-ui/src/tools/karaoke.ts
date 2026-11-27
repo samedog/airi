@@ -81,17 +81,17 @@ const tools = [
 ]
 
 /**
- * The karaoke tools, or none when this window cannot sing.
+ * The karaoke tools, or none when no karaoke store can be reached.
  *
- * Playback lives in the stage window (`attachStage`), so the tools only exist
- * there: tool resolution also runs in settings windows, headless callers and
- * unit tests, where offering "sing" would be a promise the app cannot keep.
+ * The chat and the stage are often different windows: `requestPlay` posts
+ * `{ type: 'play', songId }` over `airi-karaoke-playback-command` when this
+ * renderer is not the stage host, so the tools must exist wherever the chat
+ * runs. Only a missing Pinia (unit tests, headless callers) hides them.
  */
 export async function karaoke() {
   try {
     useKaraokeStore()
-    if (!useKaraokePlayerStore().stageHost)
-      return []
+    useKaraokePlayerStore()
   }
   catch {
     return []
