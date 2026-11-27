@@ -40,6 +40,7 @@ import {
 import { getSpeechBusContext, voiceGenerationEnded } from '../services/speech/bus'
 import { composeDrawCardPrompt, createDrawCardTool, DRAW_CARD_TOOL_NAME, drawCardContent } from '../tools/draw-card'
 import { createJudgeRecipeTool, judgmentSkillText } from '../tools/judge-recipe'
+import { createKaraokeTools } from '../tools/karaoke'
 import { composeMemoryPrompt, createMemoryTools } from '../tools/memory'
 import { createProposeRecipeTool } from '../tools/propose-recipe'
 import { createSearchIconsTool } from '../tools/search-icons'
@@ -1360,8 +1361,12 @@ export const useChatStore = defineStore('chat', () => {
       stickers,
       tools: async () => {
         const references = collectToolReferences(payload.sessionId, payload.tools)
-        return [
+        const list = [
           ...llmToolsStore.getToolsByNames(...references.map(tool => tool.name)),
+          // Always available, like the wake-word tool: the singer must work
+          // without the owner selecting it, and a registration in the synced
+          // tool store does not reach this request.
+          ...await createKaraokeTools(),
           await createWakeWordTool({ characterId, setWords: wakeWords.setWords }),
           ...(decisions.length
             ? await createJudgeRecipeTool({
@@ -1371,6 +1376,7 @@ export const useChatStore = defineStore('chat', () => {
               })
             : []),
         ]
+        return list
       },
     }
   }

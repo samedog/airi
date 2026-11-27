@@ -1,12 +1,12 @@
 import type { KaraokePlaybackCommand, KaraokePlaybackState } from '@proj-airi/stage-shared/karaoke'
 
 import { errorMessageFrom } from '@moeru/std'
-import { KARAOKE_PLAYBACK_COMMAND_CHANNEL, KARAOKE_PLAYBACK_STATE_CHANNEL } from '@proj-airi/stage-shared/karaoke'
+import { KARAOKE_PLAYBACK_COMMAND_CHANNEL, KARAOKE_PLAYBACK_STATE_CHANNEL, pickKaraokeSong } from '@proj-airi/stage-shared/karaoke'
 import { useBroadcastChannel, useLocalStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, watch } from 'vue'
 
-import { useAudioContext } from './audio'
+import { useAudioContext, useSpeakingStore } from './audio'
 import { useKaraokeStore } from './karaoke'
 
 /**
@@ -213,6 +213,44 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
       })
       return
     }
+    if (command.type === 'sing') {
+      // The window that asked may not have the library loaded, so the stage
+      // window picks from its own list and plays it.
+      void (async () => {
+        if (karaoke.songs.length === 0)
+          await karaoke.refresh()
+        if (karaoke.songs.length === 0)
+          karaoke.restoreCachedSongs()
+        const song = command.songId
+          ? (karaoke.songs.find(entry => entry.id === command.songId) ?? { id: command.songId })
+          : pickKaraokeSong(karaoke.songs, command.query)
+        console.info('[karaoke] sing request', { query: command.query, songId: command.songId, songs: karaoke.songs.length, picked: song?.id })
+        if (!song) {
+          // Say why, instead of the useless "no songs installed": the listing can
+          // fail in this window while another window shows the library.
+          const reason = !karaoke.supported
+            ? 'this window is not an Electron renderer'
+            : (karaoke.error ?? 'the library returned no songs')
+          stateBus.post({
+            isPlaying: false,
+            currentTime: 0,
+            duration: 0,
+            error: `The stage window cannot see the song library (${reason}).`,
+          })
+          return
+        }
+        await waitForSpeechIdle()
+        await play(song.id)
+      })().catch((cause) => {
+        stateBus.post({
+          isPlaying: false,
+          currentTime: 0,
+          duration: 0,
+          error: errorMessageFrom(cause) ?? 'The song could not be played.',
+        })
+      })
+      return
+    }
     stop()
   })
 
@@ -230,12 +268,60 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     stateBus.post({ isPlaying: false, currentTime: 0, duration: 0 })
   }
 
+  /**
+   * Resolves once the character has stopped talking.
+   *
+   * A karaoke request arrives before the reply is spoken, so playing at once
+   * talks over her. The short grace period covers text-only answers, where the
+   * speech store never reports `nowSpeaking`.
+   */
+  async function waitForSpeechIdle(graceMs = 1500, timeoutMs = 20000) {
+    const speaking = useSpeakingStore()
+    if (!speaking.nowSpeaking) {
+      await new Promise(resolve => setTimeout(resolve, graceMs))
+      if (!speaking.nowSpeaking)
+        return
+    }
+    await new Promise<void>((resolve) => {
+      const stopWatch = watch(() => speaking.nowSpeaking, (value) => {
+        if (!value) {
+          stopWatch()
+          resolve()
+        }
+      })
+      setTimeout(() => {
+        stopWatch()
+        resolve()
+      }, timeoutMs)
+    })
+  }
+
   async function requestPlay(id: string) {
     if (!stageHost.value) {
       commandBus.post({ type: 'play', songId: id })
       return
     }
     await play(id)
+  }
+
+  /**
+   * Asks for a song to be performed. Without a stage host, the request travels
+   * to the stage window, which owns both the library and the audio graph.
+   */
+  async function requestSing(query?: string, songId?: string) {
+    if (!stageHost.value) {
+      commandBus.post({ type: 'sing', query, songId })
+      return
+    }
+    if (karaoke.songs.length === 0)
+      await karaoke.refresh()
+    if (karaoke.songs.length === 0)
+      karaoke.restoreCachedSongs()
+    const song = songId ? { id: songId } : pickKaraokeSong(karaoke.songs, query)
+    if (!song)
+      return
+    await waitForSpeechIdle()
+    await play(song.id)
   }
 
   function requestStop() {
@@ -258,6 +344,7 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     play,
     stop,
     requestPlay,
+    requestSing,
     requestStop,
     attachStage,
     detachStage,

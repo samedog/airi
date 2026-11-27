@@ -6,28 +6,28 @@ import { z } from 'zod'
 import { useKaraokeStore } from '../stores/karaoke'
 import { useKaraokePlayerStore } from '../stores/karaoke-player'
 
-function songLabel(song: KaraokeSongAsset) {
-  return song.name
+export { useKaraokePlayerStore, useKaraokeStore }
+
+/** Treats "any song", "you pick", an empty string and friends as "no title". */
+const NO_TITLE = /^\s*(?:any|any\s+song|anything|whatever|random|surprise|something|your\s+choice|you\s+pick|don'?t\s+care|none|no)\s*$/i
+
+export function normaliseSongRequest(song?: string): string | undefined {
+  const wanted = (song ?? '').trim()
+  if (!wanted || NO_TITLE.test(wanted))
+    return undefined
+  return wanted
 }
 
-/**
- * Picks the song to sing.
- *
- * An explicit title (or a fragment of it) wins, so "sing Interstate" works.
- * Otherwise a random installed song is chosen, which is what "sing me a song"
- * expects. `null` means the library is empty.
- */
+/** Picks the song to perform; `null` when the library is empty. */
 export function pickSong(songs: KaraokeSongAsset[], requested?: string): KaraokeSongAsset | null {
   if (songs.length === 0)
     return null
 
-  const wanted = requested?.trim().toLowerCase()
+  const wanted = normaliseSongRequest(requested)?.toLowerCase()
   if (wanted) {
-    const match = songs.find(song => songLabel(song).toLowerCase().includes(wanted))
+    return songs.find(song => song.name.toLowerCase().includes(wanted))
       ?? songs.find(song => song.id.toLowerCase().includes(wanted))
-    if (!match)
-      return null
-    return match
+      ?? songs[Math.floor(Math.random() * songs.length)]
   }
 
   return songs[Math.floor(Math.random() * songs.length)]
@@ -42,28 +42,37 @@ const tools = [
       'or to sing a particular song by name. Do not claim you are singing without calling it.',
     ].join(' '),
     parameters: z.object({
-      song: z.string().optional().describe('Title or part of the title. Omit to pick a song yourself.'),
+      song: z.string().describe(
+        'Title or part of the title, or "any" to let you choose. Always pass a value; never omit it.',
+      ),
     }),
     execute: async ({ song }) => {
       const karaoke = useKaraokeStore()
       const player = useKaraokePlayerStore()
 
+      // Prefer an explicit id: whichever window can list the library resolves the
+      // song, and the stage window only has to play it. When this window cannot
+      // list either, the stage resolves the request against its own library.
       if (karaoke.songs.length === 0)
         await karaoke.refresh()
+      if (karaoke.songs.length === 0)
+        karaoke.restoreCachedSongs()
+      const wanted = normaliseSongRequest(song)
+      const chosen = pickSong(karaoke.songs, wanted)
 
-      const chosen = pickSong(karaoke.songs, song)
-      if (!chosen) {
-        const available = karaoke.songs.map(song => songLabel(song)).join(', ')
-        return song
-          ? `No installed karaoke song matches "${song}". Available: ${available || 'none'}.`
-          : 'No karaoke songs are installed yet, so there is nothing to sing.'
-      }
+      // The stage starts the song once the reply has been spoken; `requestSing`
+      // carries an id when this window could resolve one, else the query.
+      await player.requestSing(wanted, chosen?.id)
 
-      if (player.isPlaying)
-        player.requestStop()
+      await new Promise(resolve => setTimeout(resolve, 1800))
 
-      await player.requestPlay(chosen.id)
-      return `Now singing "${songLabel(chosen)}".`
+      const state = player.activeState
+      const result = state?.error
+        ? `The stage could not sing: ${state.error}`
+        : state?.isPlaying
+          ? `Now singing${chosen ? ` "${chosen.name}"` : wanted ? ` "${wanted}"` : ''}.`
+          : 'I queued the song and start it as soon as I finish talking.'
+      return result
     },
   }),
   tool({
@@ -88,7 +97,16 @@ const tools = [
  * renderer is not the stage host, so the tools must exist wherever the chat
  * runs. Only a missing Pinia (unit tests, headless callers) hides them.
  */
-export async function karaoke() {
+/**
+ * The singer tools, created for one chat request.
+ *
+ * `stores/chat.ts` adds them unconditionally, next to the wake-word tool: a
+ * registration in the synced tool store does not reach the request, and the
+ * singer has to work without the owner selecting it first. Without a karaoke
+ * store (unit tests, headless callers) they resolve to nothing instead of
+ * breaking the request.
+ */
+export async function createKaraokeTools() {
   try {
     useKaraokeStore()
     useKaraokePlayerStore()
@@ -98,3 +116,6 @@ export async function karaoke() {
   }
   return Promise.all(tools)
 }
+
+/** Alias used by `resolveLlmTools`. */
+export const karaoke = createKaraokeTools

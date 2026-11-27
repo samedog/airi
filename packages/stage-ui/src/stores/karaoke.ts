@@ -27,6 +27,9 @@ export const useKaraokeStore = defineStore('karaoke', () => {
   const loading = ref(false)
   const error = ref<string>()
   const selectedSongId = useLocalStorage('settings/karaoke/selected-song', '')
+  // The stage window can read a song by id but has been seen with an empty list,
+  // so the newest successful listing is cached for it to fall back on.
+  const cachedSongs = useLocalStorage<KaraokeSongAsset[]>('settings/karaoke/library-cache', [])
   const supported = computed(() => typeof window !== 'undefined' && isElectronWindow(window))
   const selectedSong = computed(() => songs.value.find(song => song.id === selectedSongId.value))
 
@@ -41,6 +44,12 @@ export const useKaraokeStore = defineStore('karaoke', () => {
     return context.context
   }
 
+  /** Freshest listing first, union by id: a window can see only part of the library. */
+  function mergeCachedSongs(cached: KaraokeSongAsset[], fresh: KaraokeSongAsset[]): KaraokeSongAsset[] {
+    const seen = new Set(fresh.map(song => song.id))
+    return [...fresh, ...cached.filter(song => !seen.has(song.id))]
+  }
+
   async function refresh() {
     if (!supported.value) {
       songs.value = []
@@ -51,6 +60,15 @@ export const useKaraokeStore = defineStore('karaoke', () => {
     error.value = undefined
     try {
       songs.value = await defineInvoke(getContext(), electronKaraokeSongsList)()
+      if (songs.value.length > 0) {
+        // A window can see only part of the library (the stage has been seen with
+        // one song while settings lists three). Merge with the cache instead of
+        // replacing it, so every window picks from the same list.
+        const merged = mergeCachedSongs(cachedSongs.value, songs.value)
+        if (merged.length !== songs.value.length)
+          songs.value = merged
+        cachedSongs.value = merged
+      }
       if (selectedSongId.value && !songs.value.some(song => song.id === selectedSongId.value))
         selectedSongId.value = ''
     }
@@ -60,6 +78,12 @@ export const useKaraokeStore = defineStore('karaoke', () => {
     finally {
       loading.value = false
     }
+  }
+
+  /** Uses the last listing another window made, for a window whose own listing failed. */
+  function restoreCachedSongs() {
+    if (songs.value.length === 0 && cachedSongs.value.length > 0)
+      songs.value = cachedSongs.value
   }
 
   async function read(id: string, file: KaraokeSongFile) {
@@ -128,6 +152,7 @@ export const useKaraokeStore = defineStore('karaoke', () => {
       audioUrls.delete(id)
     }
     songs.value = songs.value.filter(song => song.id !== id)
+    cachedSongs.value = cachedSongs.value.filter(song => song.id !== id)
     if (selectedSongId.value === id)
       selectedSongId.value = ''
   }
@@ -150,6 +175,7 @@ export const useKaraokeStore = defineStore('karaoke', () => {
     selectedSongId,
     selectedSong,
     refresh,
+    restoreCachedSongs,
     getAudioUrl,
     getText,
     getManifest,

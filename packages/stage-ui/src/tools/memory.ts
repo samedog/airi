@@ -19,8 +19,8 @@ const forgetParameters = strictObject({ id: idSchema })
 // Strict function calling needs every property in `required`, in nested objects too, so a new entry gives a null id.
 const entrySchema = strictObject({
   id: pipe(nullable(string()), description('The id of the entry to change, as the memory index shows it. Null for a new entry.')),
-  description: pipe(string(), maxLength(150), description('One line for the index. When the fact fits in one line, write the fact itself. Otherwise write when the fact matters.')),
-  body: pipe(string(), minLength(1), maxLength(2000), description('The fact itself, with what makes it true or when it was said.')),
+  description: pipe(string(), maxLength(150), description('One line for the index. When the fact fits in one line, write the fact itself. Otherwise write when the fact matters. In the language the owner used.')),
+  body: pipe(string(), minLength(1), maxLength(2000), description('The fact itself, with what makes it true or when it was said. In the language the owner used.')),
 })
 const writeParameters = strictObject({
   entries: pipe(array(entrySchema), minLength(1), description('Every fact to save in this turn, one entry per fact.')),
@@ -38,6 +38,7 @@ export function composeMemoryPrompt(index: string) {
     `Read entries with ${READ_MEMORY_TOOL_NAME} when they matter for your reply. An index line that already states the fact needs no read.`,
     `Save with ${WRITE_MEMORY_TOOL_NAME} only when someone asks you to remember something, or states a lasting fact. Most turns save nothing.`,
     'One fact per entry. To update an entry, write it with its id instead of adding a near copy. Never save what a recipe already holds, your own rules, codes, passwords, or secrets.',
+    'Write entries in the language the owner used when stating the fact, and keep that language when you update them. A memory in another language leaks into every later reply.',
     `Forget an entry by its id with ${FORGET_MEMORY_TOOL_NAME} when it turns out wrong or someone asks. General entries belong to the owner, so you cannot change or forget them.`,
     index ? `Memory index:\n${index}` : 'The memory index is empty.',
   ].join('\n')

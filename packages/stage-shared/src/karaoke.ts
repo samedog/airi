@@ -53,7 +53,30 @@ export const KARAOKE_PLAYBACK_COMMAND_CHANNEL = 'airi-karaoke-playback-command'
 /** Playback state that the stage window reports back to the settings window. */
 export const KARAOKE_PLAYBACK_STATE_CHANNEL = 'airi-karaoke-playback-state'
 
-export type KaraokePlaybackCommand = { type: 'play', songId: string } | { type: 'stop' }
+/**
+ * A request to perform. `sing` lets the stage window pick the song from its own
+ * library: the chat window that asks may not have the library loaded, and the
+ * stage is the only window that can play anyway.
+ */
+export type KaraokePlaybackCommand
+  = | { type: 'play', songId: string }
+    | { type: 'sing', query?: string, songId?: string }
+    | { type: 'stop' }
+
+/** Picks a song for a request. Pure, so every window can share one rule. */
+export function pickKaraokeSong(songs: KaraokeSongAsset[], requested?: string): KaraokeSongAsset | null {
+  if (songs.length === 0)
+    return null
+
+  const wanted = requested?.trim().toLowerCase()
+  if (wanted) {
+    return songs.find(song => song.name.toLowerCase().includes(wanted))
+      ?? songs.find(song => song.id.toLowerCase().includes(wanted))
+      ?? songs[Math.floor(Math.random() * songs.length)]
+  }
+
+  return songs[Math.floor(Math.random() * songs.length)]
+}
 
 export interface KaraokePlaybackState {
   isPlaying: boolean

@@ -2,7 +2,7 @@ import type { KaraokeSongAsset } from '@proj-airi/stage-shared/karaoke'
 
 import { describe, expect, it } from 'vitest'
 
-import { pickSong } from './karaoke'
+import { normaliseSongRequest, pickSong } from './karaoke'
 
 function song(id: string, name: string): KaraokeSongAsset {
   return {
@@ -32,10 +32,24 @@ describe('pickSong', () => {
     expect(pickSong(library, 'mötley')?.id).toBe('mötley-crüe-kickstart-my-heart')
   })
 
-  it('returns null when nothing matches or the library is empty', () => {
-    expect(pickSong(library, 'nothing like this')).toBeNull()
+  it('returns null only when the library is empty', () => {
     expect(pickSong([], 'anything')).toBeNull()
     expect(pickSong([])).toBeNull()
+  })
+
+  it('falls back to some installed song when the title matches nothing or says "any"', () => {
+    const ids = library.map(entry => entry.id)
+    for (const request of ['nothing like this', 'any', 'any song', '', 'you pick']) {
+      for (let attempt = 0; attempt < 10; attempt++)
+        expect(ids).toContain(pickSong(library, request)?.id)
+    }
+  })
+
+  it('treats a free-choice answer as no title', () => {
+    expect(normaliseSongRequest('ANY')).toBeUndefined()
+    expect(normaliseSongRequest('you pick')).toBeUndefined()
+    expect(normaliseSongRequest('   ')).toBeUndefined()
+    expect(normaliseSongRequest('plush')).toBe('plush')
   })
 
   it('chooses one of the installed songs when no title is given', () => {
