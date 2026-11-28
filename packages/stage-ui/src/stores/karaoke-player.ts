@@ -6,6 +6,8 @@ import { useBroadcastChannel, useLocalStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, watch } from 'vue'
 
+import { setKaraokeSinging } from '../libs/speech/singing-gate'
+import { waitForSpeechSettled } from '../libs/speech/wait-for-speech-settled'
 import { useAudioContext, useSpeakingStore } from './audio'
 import { useKaraokeStore } from './karaoke'
 
@@ -42,6 +44,16 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
    * command over the broadcast channel and shows the state that comes back.
    */
   const stageHost = ref(false)
+  /**
+   * Reports a reply that is still streaming or playing in this window.
+   *
+   * The stage supplies it, because only the stage knows its speech turns; a
+   * window without one falls back to audible speech.
+   */
+  let speechBusy: (() => boolean) | undefined
+  /** The song waiting for the character to stop talking, if any. */
+  const pendingSongId = ref<string>()
+  let pendingAttempt = 0
   const commandBus = useBroadcastChannel<KaraokePlaybackCommand, KaraokePlaybackCommand>({ name: KARAOKE_PLAYBACK_COMMAND_CHANNEL })
   const stateBus = useBroadcastChannel<KaraokePlaybackState, KaraokePlaybackState>({ name: KARAOKE_PLAYBACK_STATE_CHANNEL })
   let lastPublishedTick = -1
@@ -146,10 +158,12 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
   }
 
   function stop() {
+    cancelQueuedSong()
     cancelAnimationFrame(frame)
     frame = 0
     stopSources()
     isPlaying.value = false
+    setKaraokeSinging(false)
     currentTime.value = 0
     songId.value = undefined
     lastPublishedTick = -1
@@ -195,6 +209,8 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     currentTime.value = 0
     songId.value = id
     isPlaying.value = true
+    // Every reply and Spark notification stays quiet until the song ends.
+    setKaraokeSinging(true)
     publishState()
     tick()
   }
@@ -239,8 +255,7 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
           })
           return
         }
-        await waitForSpeechIdle()
-        await play(song.id)
+        queueSong(song.id)
       })().catch((cause) => {
         stateBus.post({
           isPlaying: false,
@@ -256,43 +271,85 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
 
   watch([isPlaying, songId, duration], publishState)
 
-  /** The avatar window calls this when it mounts. Only that window plays audio. */
-  function attachStage() {
+  /**
+   * The avatar window calls this when it mounts. Only that window plays audio.
+   *
+   * `isSpeechBusy` reports that window's open speech turns, so a queued song
+   * waits for the whole reply, not only for audible speech.
+   */
+  function attachStage(options: { isSpeechBusy?: () => boolean } = {}) {
+    speechBusy = options.isSpeechBusy
     stageHost.value = true
     publishState()
   }
 
   function detachStage() {
     stop()
+    speechBusy = undefined
     stageHost.value = false
     stateBus.post({ isPlaying: false, currentTime: 0, duration: 0 })
   }
 
   /**
-   * Resolves once the character has stopped talking.
+   * True while a reply is still streaming or playing in this window.
    *
-   * A karaoke request arrives before the reply is spoken, so playing at once
-   * talks over her. The short grace period covers text-only answers, where the
-   * speech store never reports `nowSpeaking`.
+   * The response turn stays active from the moment the reply is composed until
+   * its playback drains, so this covers an answer that has not reached the
+   * speech engine yet. Without the stage's report only audible speech counts.
    */
-  async function waitForSpeechIdle(graceMs = 1500, timeoutMs = 20000) {
-    const speaking = useSpeakingStore()
-    if (!speaking.nowSpeaking) {
-      await new Promise(resolve => setTimeout(resolve, graceMs))
-      if (!speaking.nowSpeaking)
+  function speechIsBusy() {
+    if (speechBusy?.())
+      return true
+    return useSpeakingStore().nowSpeaking
+  }
+
+  /**
+   * Resolves once the character has finished talking.
+   *
+   * A karaoke request arrives in the middle of the reply that announces it, and
+   * that reply has not even reached the speech engine yet, so neither
+   * `nowSpeaking` nor a fixed grace period is enough. The settle wait follows
+   * the speech turn instead: it ends after the turn drained and a short quiet
+   * moment confirms no second response is starting.
+   */
+  async function waitForSpeechIdle(): Promise<void> {
+    await waitForSpeechSettled(speechIsBusy)
+  }
+
+  /** Drops a queued song, so a newer request or a stop cannot be overtaken by it. */
+  function cancelQueuedSong() {
+    pendingAttempt += 1
+    pendingSongId.value = undefined
+  }
+
+  async function startQueuedSong(attempt: number, id: string) {
+    await waitForSpeechIdle()
+    if (attempt !== pendingAttempt || pendingSongId.value !== id)
+      return
+    pendingSongId.value = undefined
+    await play(id)
+  }
+
+  /**
+   * Queues a song behind the reply that is announcing it.
+   *
+   * The tool runs before the reply text exists, so starting the song here would
+   * either cut the announcement off or speak it over the intro. The song waits
+   * for the turn to drain and then plays, the way a person waits for their turn.
+   */
+  function queueSong(id: string) {
+    const attempt = ++pendingAttempt
+    pendingSongId.value = id
+    void startQueuedSong(attempt, id).catch((cause) => {
+      if (attempt !== pendingAttempt)
         return
-    }
-    await new Promise<void>((resolve) => {
-      const stopWatch = watch(() => speaking.nowSpeaking, (value) => {
-        if (!value) {
-          stopWatch()
-          resolve()
-        }
+      pendingSongId.value = undefined
+      stateBus.post({
+        isPlaying: false,
+        currentTime: 0,
+        duration: 0,
+        error: errorMessageFrom(cause) ?? 'The song could not be played.',
       })
-      setTimeout(() => {
-        stopWatch()
-        resolve()
-      }, timeoutMs)
     })
   }
 
@@ -320,8 +377,7 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     const song = songId ? { id: songId } : pickKaraokeSong(karaoke.songs, query)
     if (!song)
       return
-    await waitForSpeechIdle()
-    await play(song.id)
+    queueSong(song.id)
   }
 
   function requestStop() {
@@ -337,6 +393,8 @@ export const useKaraokePlayerStore = defineStore('karaoke-player', () => {
     currentTime,
     duration,
     songId,
+    /** The song waiting for the character to stop talking, if any. */
+    pendingSongId,
     volume,
     gain: mixGain,
     activeState,
