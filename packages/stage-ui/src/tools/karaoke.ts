@@ -40,6 +40,8 @@ const tools = [
       'Sing a karaoke song that is installed in the app: the character performs it on stage with',
       'the lyrics, the backing track and lip sync. Use this whenever the owner asks you to sing,',
       'or to sing a particular song by name. Do not claim you are singing without calling it.',
+      'The song starts after your reply has been spoken, so keep that reply short: it is the',
+      'introduction to the song, and anything you say after the song starts is not spoken aloud.',
     ].join(' '),
     parameters: z.object({
       song: z.string().describe(
@@ -64,15 +66,18 @@ const tools = [
       // carries an id when this window could resolve one, else the query.
       await player.requestSing(wanted, chosen?.id)
 
-      await new Promise(resolve => setTimeout(resolve, 1800))
+      // A short wait, only to let the stage report a failure before the answer
+      // is written. The song itself starts after the answer, so it cannot be
+      // playing yet.
+      await new Promise(resolve => setTimeout(resolve, 600))
 
       const state = player.activeState
-      const result = state?.error
-        ? `The stage could not sing: ${state.error}`
-        : state?.isPlaying
-          ? `Now singing${chosen ? ` "${chosen.name}"` : wanted ? ` "${wanted}"` : ''}.`
-          : 'I queued the song and start it as soon as I finish talking.'
-      return result
+      const title = chosen ? ` "${chosen.name}"` : wanted ? ` "${wanted}"` : ''
+      if (state?.error)
+        return `The stage could not sing: ${state.error}`
+      if (state?.isPlaying)
+        return `Now singing${title}.`
+      return `I start${title} as soon as I finish talking.`
     },
   }),
   tool({

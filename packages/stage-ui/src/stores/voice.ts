@@ -21,6 +21,7 @@ import { useVoiceDrafts } from '../composables/voice-drafts'
 import { useVoiceEndJudge } from '../composables/voice-end-judge'
 import { createVoiceInputTracer } from '../composables/voice-input-trace'
 import { useVoiceRephrase } from '../composables/voice-rephrase'
+import { silentWhileSinging } from '../libs/speech/singing-gate'
 import { createSpeakerEvidencePlugin, NO_SPEAKER_CANDIDATES } from '../libs/voice/speaker-evidence-plugin'
 import { createSpeechOutputLevelPlugin } from '../libs/voice/speech-output-level-plugin'
 import { createVoiceActivityPlugin } from '../libs/voice/voice-activity-plugin'
@@ -512,6 +513,12 @@ export const useVoiceStore = defineStore('voice', () => {
         // The full key isolates a producer from other windows and turns.
         const key = JSON.stringify([body.originId, body.producerId, body.turn.sessionId, body.turn.turnId])
         if (body.type === 'open') {
+          // A reply or a Spark notification is omitted while she sings: the song
+          // is the performance, so the producer is refused rather than queued
+          // behind the last note. A read-aloud stays available.
+          if (silentWhileSinging(body.purpose))
+            return { status: 'closed' }
+
           if (opened.has(key))
             return { status: producers.has(key) ? 'accepted' : 'closed' }
 

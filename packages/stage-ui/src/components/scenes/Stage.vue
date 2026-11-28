@@ -690,12 +690,6 @@ async function connectBeatSync() {
   }
 }
 
-onMounted(() => {
-  // This window renders the avatar, so it owns karaoke playback and the mouth.
-  karaokePlayer.attachStage()
-  void connectBeatSync()
-})
-
 function vrmAnimationSlotForEmotion(name: Emotion): VrmAnimationSlot | undefined {
   if (name === Emotion.Neutral)
     return undefined
@@ -779,6 +773,13 @@ const live2d = createLive2D({
 })
 useSharedLive2DExpressionPreview(live2d, selectedCharacterId, () => selectedAvatarModel.value?.id)
 const voice = useVoiceStore()
+
+onMounted(() => {
+  // This window renders the avatar, so it owns karaoke playback and the mouth.
+  // The speech turns are reported so a queued song waits for the whole reply.
+  karaokePlayer.attachStage({ isSpeechBusy: () => voice.activeTurns.length > 0 })
+  void connectBeatSync()
+})
 
 interface StageEmotionPayload extends EmotionPayload {
   /** True when this ACT already played an explicit body motion. */
@@ -1057,7 +1058,9 @@ const disconnectVoiceOutput = voice.connectOutput((turn) => {
       }
     },
   }
-  if (speechMuted.value)
+  // A song is the performance: while it plays, the reply stays in the chat and
+  // out of the speakers, and nothing waits in the queue behind the music.
+  if (speechMuted.value || karaokePlayer.isPlaying)
     return { ...output, synthesize: async () => null }
   try {
     const [characterId] = chatSession.characterMembersOf(turn.sessionId)
