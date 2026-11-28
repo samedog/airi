@@ -625,7 +625,11 @@ describe('chat store contract', () => {
     expect(() => structuredClone(result)).not.toThrow()
     // The session character's wake word tool joins every turn. It is not a selectable stored tool.
     // Reply cards are on by default, so the owner's chat also gets the card tool and the icon search of cards.
-    expect(resolvedToolNames).toEqual([
+    // The singer tools join every request when the karaoke stores can be created, which a
+    // headless test may or may not manage; `tools/karaoke.test.ts` covers those.
+    const singers = ['builtIn_singSong', 'builtIn_stopSong']
+    const withoutSingers = resolvedToolNames.map(names => names.filter(name => !singers.includes(name)))
+    expect(withoutSingers).toEqual([
       ['stage_widgets', 'configure_wake_words', 'builtIn_readMemory', 'builtIn_writeMemory', 'builtIn_forgetMemory', 'builtIn_useRecipe', 'builtIn_proposeRecipe', 'builtIn_drawCard', 'builtIn_searchIcons'],
       ['stage_widgets', 'configure_wake_words', 'builtIn_readMemory', 'builtIn_writeMemory', 'builtIn_forgetMemory', 'builtIn_useRecipe', 'builtIn_proposeRecipe', 'builtIn_drawCard', 'builtIn_searchIcons'],
     ])
